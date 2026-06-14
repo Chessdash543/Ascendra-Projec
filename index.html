@@ -815,6 +815,7 @@
                                     <option value="Scorched Canyon">Scorched Canyon (Red Canyons)</option>
                                     <option value="Neo City Ruins">Neo City Ruins (Cidade Cyberpunk)</option>
                                     <option value="Arctic Facility">Arctic Facility (Base Gelada)</option>
+                                    <option value="Backrooms">Backrooms (Nível 0, Labirinto)</option>
                                 </select>
                             </div>
                         </div>
@@ -1899,6 +1900,10 @@
             } else if (mapType === 'Arctic Facility') {
                 fogColor = 0x121a2b; // arctic icy blue
                 ambientColor = 0xccddee;
+            } else if (mapType === 'Backrooms') {
+                fogColor = 0xbaa475; // bege/amarelado
+                ambientColor = 0xfffae6;
+                ambientIntensity = 0.6;
             }
 
             sceneObj.fog = new THREE.FogExp2(fogColor, 0.035);
@@ -1927,6 +1932,7 @@
             if (mapType === 'Jungle Outpost') groundColor = 0x112211;
             if (mapType === 'Scorched Canyon') groundColor = 0x331a0d;
             if (mapType === 'Arctic Facility') groundColor = 0xddeeff;
+            if (mapType === 'Backrooms') groundColor = 0x9c8b59;
 
             const groundGeo = new THREE.PlaneGeometry(500, 500);
             const groundMat = new THREE.MeshStandardMaterial({ color: groundColor, roughness: 0.9 });
@@ -1934,6 +1940,15 @@
             ground.rotation.x = -Math.PI / 2;
             ground.receiveShadow = true;
             sceneObj.add(ground);
+
+            if (mapType === 'Backrooms') {
+                const ceilingGeo = new THREE.PlaneGeometry(500, 500);
+                const ceilingMat = new THREE.MeshStandardMaterial({ color: 0xddddcc, roughness: 0.9 });
+                const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
+                ceiling.rotation.x = Math.PI / 2;
+                ceiling.position.y = 12; // Altura do teto
+                sceneObj.add(ceiling);
+            }
 
             // Generate map boundaries and obstacles
             const wallBlocks = [];
@@ -1961,8 +1976,11 @@
                     }
                     // Random internal obstacles (excluding spawn center area)
                     else if (Math.abs(r) > 2 || Math.abs(c) > 2) {
-                        if (Math.random() < 0.16) {
-                            const h = 4 + Math.random() * 10;
+                        let wallProb = 0.16;
+                        if (mapType === 'Backrooms') wallProb = 0.35;
+                        
+                        if (Math.random() < wallProb) {
+                            const h = mapType === 'Backrooms' ? 12 : 4 + Math.random() * 10;
                             const obstacle = createObstacleMesh(mapType, cellSize * 0.8, h, cellSize * 0.8);
                             obstacle.position.set(x, 0, z);
                             sceneObj.add(obstacle);
@@ -1973,6 +1991,19 @@
                                 minZ: z - cellSize*0.4,
                                 maxZ: z + cellSize*0.4
                             });
+                        }
+                        // Lâmpadas no teto em Backrooms
+                        else if (mapType === 'Backrooms' && Math.random() < 0.15) {
+                            const lightGeo = new THREE.BoxGeometry(4, 0.1, 1);
+                            const lightMat = new THREE.MeshBasicMaterial({ color: 0xffffee });
+                            const lamp = new THREE.Mesh(lightGeo, lightMat);
+                            lamp.position.set(x, 11.9, z);
+                            sceneObj.add(lamp);
+                            
+                            const pointLight = new THREE.PointLight(0xfffae6, 0.9, 45);
+                            pointLight.position.set(x, 11, z);
+                            pointLight.castShadow = (graphicsQuality === 'high');
+                            sceneObj.add(pointLight);
                         }
                         // Map decor elements
                         else if (Math.random() < 0.22) {
@@ -1995,6 +2026,7 @@
             if (mapType === 'Scorched Canyon') color = 0x733d26;
             if (mapType === 'Arctic Facility') color = 0x4f5d75;
             if (mapType === 'Neo City Ruins') color = 0x0e0e12;
+            if (mapType === 'Backrooms') color = 0xcbc093;
 
             const group = new THREE.Group();
             const geo = new THREE.BoxGeometry(w, h, d);
@@ -2844,7 +2876,6 @@
             }, 100);
 
             playShieldHitSFX();
-            recoilCamera(0.12);
 
             if (playerShield > 0) {
                 playerShield -= dmg;
