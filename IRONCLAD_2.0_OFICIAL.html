@@ -1,0 +1,2637 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IRONCLAD 2.0 FINAL</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #06090d;
+      --panel: rgba(10, 15, 19, 0.88);
+      --panel-strong: rgba(16, 24, 30, 0.96);
+      --line: rgba(174, 214, 220, 0.22);
+      --line-strong: rgba(156, 242, 211, 0.58);
+      --text: #eef4f2;
+      --muted: #9daeb4;
+      --accent: #63d1b6;
+      --accent-2: #f0b257;
+      --danger: #ff6b5f;
+      --blue: #5fa8ff;
+      --shadow: 0 18px 60px rgba(0, 0, 0, 0.4);
+      --hud-scale: 1;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      overflow: hidden;
+      background: radial-gradient(circle at 18% 14%, rgba(99, 209, 182, 0.16), transparent 30%),
+        linear-gradient(135deg, #05070a, #10161a 56%, #070a0e);
+      color: var(--text);
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+
+    #app {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #gameCanvas {
+      position: fixed;
+      inset: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      background: #05080c;
+    }
+
+    .fallback {
+      position: fixed;
+      left: 50%;
+      bottom: 28px;
+      z-index: 20;
+      transform: translateX(-50%);
+      display: none;
+      width: min(520px, calc(100vw - 32px));
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-strong);
+      box-shadow: var(--shadow);
+      color: var(--muted);
+    }
+
+    .fallback strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+
+    .topbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 16;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 72px;
+      padding: 14px 22px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      background: linear-gradient(180deg, rgba(3, 6, 9, 0.88), rgba(3, 6, 9, 0.22));
+      backdrop-filter: blur(14px);
+    }
+
+    .brand,
+    .profile-mini,
+    .brand > div {
+      display: flex;
+      align-items: center;
+    }
+
+    .brand {
+      gap: 12px;
+    }
+
+    .brand > div {
+      flex-direction: column;
+      align-items: flex-start;
+      line-height: 1.1;
+    }
+
+    .brand small,
+    .profile-mini,
+    .eyebrow,
+    .muted,
+    .stat-label,
+    .field-label,
+    .hud-label,
+    .hud-block span {
+      color: var(--muted);
+    }
+
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: rgba(99, 209, 182, 0.12);
+      color: var(--accent);
+      font-weight: 900;
+    }
+
+    .profile-mini {
+      gap: 10px;
+    }
+
+    .icon-button {
+      display: inline-grid;
+      place-items: center;
+      min-width: 40px;
+      height: 40px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .icon-button:hover,
+    .command:hover,
+    .choice:hover,
+    .chip:hover,
+    .back:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .screen-stack {
+      position: relative;
+      z-index: 8;
+      width: 100%;
+      height: 100%;
+      padding: 96px 24px 24px;
+      pointer-events: none;
+    }
+
+    .screen {
+      position: absolute;
+      inset: 96px 24px 24px;
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    .screen.active {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      font-size: 0.75rem;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 12px;
+      font-size: clamp(3rem, 7vw, 6.6rem);
+      line-height: 0.9;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-bottom: 16px;
+      font-size: 2rem;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin-bottom: 12px;
+      letter-spacing: 0;
+    }
+
+    .layout-menu {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
+      gap: 20px;
+      height: 100%;
+      align-items: end;
+    }
+
+    .menu-copy {
+      max-width: 620px;
+      margin-bottom: 26px;
+      color: #c7d6d7;
+      font-size: 1.08rem;
+      line-height: 1.5;
+    }
+
+    .menu-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(170px, 220px));
+      gap: 10px;
+      width: min(460px, 100%);
+    }
+
+    .panel,
+    .modal,
+    .sidebar,
+    .detail {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .panel {
+      display: grid;
+      gap: 14px;
+      padding: 18px;
+    }
+
+    .panel-head,
+    .stat-row,
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .panel-head {
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .command,
+    .back,
+    .choice,
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .command {
+      min-height: 46px;
+      padding: 0 16px;
+      text-align: left;
+    }
+
+    .command.primary {
+      border-color: var(--line-strong);
+      background: linear-gradient(135deg, rgba(99, 209, 182, 0.24), rgba(240, 178, 87, 0.12));
+    }
+
+    .command.small,
+    .back {
+      min-height: 40px;
+      padding: 0 14px;
+      text-align: center;
+    }
+
+    .progress-track,
+    .meter {
+      overflow: hidden;
+      height: 9px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .progress-fill,
+    .meter-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transition: width 160ms ease;
+    }
+
+    .choice-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .choice {
+      display: grid;
+      gap: 4px;
+      min-height: 58px;
+      padding: 10px 12px;
+      text-align: left;
+    }
+
+    .choice small,
+    .chip small {
+      color: var(--muted);
+    }
+
+    .choice.selected,
+    .chip.selected {
+      border-color: var(--line-strong);
+      background: rgba(99, 209, 182, 0.13);
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(280px, 370px) minmax(0, 1fr);
+      gap: 18px;
+      height: 100%;
+    }
+
+    .sidebar,
+    .detail {
+      overflow: auto;
+      padding: 18px;
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .detail {
+      display: grid;
+      align-content: start;
+      gap: 18px;
+    }
+
+    .detail-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .loadout {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .loadout-card,
+    .stat-card,
+    .achievement {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .loadout-card {
+      display: grid;
+      gap: 10px;
+      min-height: 128px;
+      padding: 14px;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      min-height: 32px;
+      padding: 0 10px;
+      border-radius: 99px;
+    }
+
+    .bars {
+      display: grid;
+      gap: 10px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 120px minmax(120px, 1fr) 46px;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .bar-track {
+      height: 10px;
+      border: 1px solid var(--line);
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), #87a4b5);
+    }
+
+    .profile-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 10px;
+    }
+
+    .stat-card {
+      display: grid;
+      gap: 6px;
+      min-height: 86px;
+      padding: 14px;
+    }
+
+    .stat-card strong {
+      font-size: 1.45rem;
+    }
+
+    .achievement-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(180px, 1fr));
+      gap: 10px;
+    }
+
+    .achievement {
+      display: grid;
+      gap: 4px;
+      min-height: 76px;
+      padding: 12px;
+    }
+
+    .achievement.unlocked {
+      border-color: rgba(156, 242, 211, 0.5);
+      background: rgba(99, 209, 182, 0.11);
+    }
+
+    .field-label {
+      display: grid;
+      gap: 7px;
+      font-weight: 700;
+    }
+
+    .field,
+    .select {
+      width: 100%;
+      height: 44px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      outline: none;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+    }
+
+    .hud {
+      position: fixed;
+      inset: 86px 22px 22px;
+      z-index: 12;
+      pointer-events: none;
+      transform: scale(var(--hud-scale));
+      transform-origin: center bottom;
+    }
+
+    .hud[hidden] {
+      display: none;
+    }
+
+    .hud-top {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      display: grid;
+      grid-template-columns: repeat(3, minmax(150px, 1fr));
+      gap: 8px;
+      width: min(760px, 100%);
+    }
+
+    .hud-top > div,
+    .hud-block,
+    .hud-weapon,
+    .squad-feed {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: rgba(4, 8, 11, 0.74);
+      backdrop-filter: blur(12px);
+    }
+
+    .hud-top > div {
+      display: grid;
+      gap: 2px;
+      min-height: 56px;
+      padding: 9px 12px;
+    }
+
+    .hud-bottom {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(160px, 1fr)) minmax(190px, 260px);
+      gap: 8px;
+      align-items: end;
+    }
+
+    .hud-block {
+      display: grid;
+      gap: 7px;
+      min-height: 78px;
+      padding: 10px 12px;
+    }
+
+    .hud-block strong {
+      justify-self: end;
+    }
+
+    .meter {
+      height: 10px;
+    }
+
+    .meter-fill.shield {
+      background: linear-gradient(90deg, var(--blue), #b1d9ff);
+    }
+
+    .meter-fill.heat {
+      background: linear-gradient(90deg, var(--accent-2), var(--danger));
+    }
+
+    .hud-weapon {
+      display: grid;
+      gap: 4px;
+      min-height: 78px;
+      padding: 12px;
+      text-align: right;
+    }
+
+    .squad-feed {
+      position: absolute;
+      top: 76px;
+      right: 0;
+      display: grid;
+      gap: 4px;
+      width: min(300px, 100%);
+      padding: 10px 12px;
+      color: var(--muted);
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(0, 0, 0, 0.58);
+      backdrop-filter: blur(10px);
+    }
+
+    .modal-backdrop[hidden] {
+      display: none;
+    }
+
+    .modal {
+      display: grid;
+      gap: 14px;
+      width: min(440px, 100%);
+      padding: 22px;
+      background: var(--panel-strong);
+    }
+
+    .toggle-line {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+    }
+
+    .toast-stack {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 48;
+      display: grid;
+      gap: 10px;
+      width: min(360px, calc(100vw - 44px));
+    }
+
+    .toast {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent);
+      border-radius: 6px;
+      background: rgba(8, 13, 17, 0.95);
+      box-shadow: var(--shadow);
+    }
+
+    .flash {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      opacity: 0;
+      mix-blend-mode: screen;
+      background: radial-gradient(circle at 50% 50%, rgba(255, 221, 168, 0.7), transparent 60%);
+    }
+
+    .hit-vignette {
+      position: fixed;
+      inset: 0;
+      z-index: 11;
+      pointer-events: none;
+      opacity: 0;
+      background: radial-gradient(circle at 50% 50%, transparent 42%, rgba(255, 35, 26, 0.52) 100%);
+      transition: opacity 80ms linear;
+    }
+
+    .crosshair {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      z-index: 14;
+      width: 42px;
+      height: 42px;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+
+    .crosshair::before,
+    .crosshair::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      background: rgba(156, 242, 211, 0.92);
+      box-shadow: 0 0 12px rgba(99, 209, 182, 0.7);
+      transform: translate(-50%, -50%);
+    }
+
+    .crosshair::before {
+      width: 34px;
+      height: 2px;
+    }
+
+    .crosshair::after {
+      width: 2px;
+      height: 34px;
+    }
+
+    .crosshair-dot {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 6px;
+      height: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.75);
+      border-radius: 50%;
+      background: rgba(240, 178, 87, 0.9);
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 14px rgba(240, 178, 87, 0.75);
+    }
+
+    .combat-hint {
+      position: fixed;
+      left: 50%;
+      bottom: 118px;
+      z-index: 15;
+      width: min(560px, calc(100vw - 32px));
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(4, 8, 11, 0.78);
+      color: var(--text);
+      text-align: center;
+      transform: translateX(-50%);
+      pointer-events: none;
+      backdrop-filter: blur(12px);
+    }
+
+    body.combat-active .topbar {
+      transform: translateY(-86px);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    body.combat-active #gameCanvas {
+      cursor: crosshair;
+    }
+
+    @media (max-width: 980px) {
+      .layout-menu,
+      .two-col {
+        grid-template-columns: 1fr;
+        align-items: start;
+        overflow: auto;
+      }
+
+      .panel {
+        order: -1;
+      }
+
+      .profile-grid,
+      .achievement-grid,
+      .loadout {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .topbar {
+        min-height: 64px;
+        padding: 10px 12px;
+      }
+
+      .brand small,
+      #rankMini {
+        display: none;
+      }
+
+      .screen-stack {
+        padding: 78px 12px 12px;
+      }
+
+      .screen {
+        inset: 78px 12px 12px;
+        overflow: auto;
+      }
+
+      .menu-actions {
+        grid-template-columns: 1fr;
+      }
+
+      .hud {
+        inset: 76px 12px 12px;
+      }
+
+      .hud-top {
+        display: none;
+      }
+
+      .hud-bottom {
+        grid-template-columns: 1fr;
+      }
+
+      .squad-feed {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <canvas id="gameCanvas"></canvas>
+    <div id="fallback" class="fallback">
+      <strong>Renderizador 3D indisponivel.</strong>
+      <span>A interface continua ativa. Verifique a conexao com a CDN do Three.js.</span>
+    </div>
+    <div id="flash" class="flash"></div>
+    <div id="hitVignette" class="hit-vignette"></div>
+    <div id="crosshair" class="crosshair" hidden><span class="crosshair-dot"></span></div>
+    <div id="combatHint" class="combat-hint" hidden>Clique na tela para pilotar. WASD move, mouse mira, clique dispara, Shift acelera, F usa ordnance.</div>
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">IC</span>
+        <div>
+          <strong>IRONCLAD 2.0</strong>
+          <small>Versao Final Integrada</small>
+        </div>
+      </div>
+      <div class="profile-mini">
+        <span id="callsignMini">RAVEN-01</span>
+        <span id="rankMini">Recruta</span>
+        <button class="icon-button" data-action="profile" title="Perfil">P</button>
+        <button class="icon-button" data-action="esc" title="Menu tatico">ESC</button>
+      </div>
+    </header>
+
+    <main class="screen-stack">
+      <section id="screenMenu" class="screen active">
+        <div class="layout-menu">
+          <div>
+            <p class="eyebrow">Sci-fi tactical mech combat</p>
+            <h1>IRONCLAD 2.0</h1>
+            <p class="menu-copy">Escolha faccao, mech, mapa e modo. Entre em combate com esquadroes, estruturas militares, IA tatica e efeitos integrados.</p>
+            <div class="menu-actions">
+              <button class="command primary" data-action="campaign">Campanha</button>
+              <button class="command" data-action="skirmish">Escaramuca</button>
+              <button class="command" data-action="hangar">Hangar</button>
+              <button class="command" data-action="profile">Perfil</button>
+              <button class="command" data-action="settings">Configuracoes</button>
+              <button class="command" data-action="credits">Creditos</button>
+            </div>
+          </div>
+
+          <aside class="panel">
+            <div class="panel-head">
+              <span class="muted">Operador</span>
+              <strong id="menuCallsign">RAVEN-01</strong>
+            </div>
+            <div class="stat-row"><span class="muted">Faccao</span><strong id="menuFaction">AEGIS UNION</strong></div>
+            <div class="stat-row"><span class="muted">Mech</span><strong id="menuMech">VANGUARD</strong></div>
+            <div class="stat-row"><span class="muted">Mapa</span><strong id="menuMap">Jungle Outpost</strong></div>
+            <div class="stat-row"><span class="muted">Dificuldade</span><strong id="menuDifficulty">Normal</strong></div>
+            <div>
+              <div class="stat-row"><span class="muted">XP</span><span id="xpText">0 / 1000</span></div>
+              <div class="progress-track"><div id="xpBar" class="progress-fill"></div></div>
+            </div>
+            <div id="factionChoices" class="choice-grid"></div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="screenHangar" class="screen">
+        <div class="two-col">
+          <aside class="sidebar">
+            <button class="back" data-action="menu">Voltar</button>
+            <p class="eyebrow">Hangar</p>
+            <h2>Mechs 2.0</h2>
+            <div id="mechList" class="list"></div>
+          </aside>
+          <section class="detail">
+            <div class="detail-head">
+              <div>
+                <p id="mechRole" class="eyebrow">Assalto equilibrado</p>
+                <h2 id="mechName">VANGUARD</h2>
+              </div>
+              <button class="command small primary" data-action="equipMech">Equipar</button>
+            </div>
+            <div class="loadout">
+              <div class="loadout-card">
+                <span class="muted">Arma primaria</span>
+                <strong id="primaryName">Autocannon</strong>
+                <div id="weaponList" class="chip-row"></div>
+              </div>
+              <div class="loadout-card">
+                <span class="muted">Ordnance</span>
+                <strong id="ordnanceName">Rocket Pod</strong>
+                <div id="ordnanceList" class="chip-row"></div>
+              </div>
+            </div>
+            <div id="mechBars" class="bars"></div>
+            <p id="mechDescription" class="muted"></p>
+          </section>
+        </div>
+      </section>
+
+      <section id="screenProfile" class="screen">
+        <div class="two-col">
+          <aside class="sidebar">
+            <button class="back" data-action="menu">Voltar</button>
+            <p class="eyebrow">Perfil</p>
+            <h2>Registro do Piloto</h2>
+            <label class="field-label">Codinome
+              <input id="callsignInput" class="field" maxlength="18" value="RAVEN-01">
+            </label>
+            <button class="command small primary" data-action="saveCallsign">Salvar codinome</button>
+            <button class="command small" data-action="resetSave">Resetar save</button>
+          </aside>
+          <section class="detail">
+            <div>
+              <p class="eyebrow" id="profileRank">Recruta</p>
+              <h2 id="profileLevel">Nivel 1</h2>
+              <div class="progress-track"><div id="profileXpBar" class="progress-fill"></div></div>
+              <p id="profileXpText" class="muted">0 / 1000 XP</p>
+            </div>
+            <div id="profileStats" class="profile-grid"></div>
+            <div>
+              <h3>Conquistas</h3>
+              <div id="achievementList" class="achievement-grid"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="screenSkirmish" class="screen">
+        <div class="two-col">
+          <aside class="sidebar">
+            <button class="back" data-action="menu">Voltar</button>
+            <p class="eyebrow">Escaramuca</p>
+            <h2>Configurar Partida</h2>
+            <label class="field-label">Modo
+              <select id="modeSelect" class="select">
+                <option>Conquest</option>
+                <option>Deathmatch</option>
+                <option>Extraction</option>
+                <option>Survival</option>
+                <option>Siege</option>
+              </select>
+            </label>
+            <label class="field-label">Mapa
+              <select id="mapSelect" class="select"></select>
+            </label>
+            <label class="field-label">Dificuldade
+              <select id="difficultySelect" class="select">
+                <option>Recruta</option>
+                <option selected>Normal</option>
+                <option>Veterano</option>
+                <option>Lenda</option>
+              </select>
+            </label>
+            <button class="command primary" data-action="launchSkirmish">Iniciar partida</button>
+          </aside>
+          <section class="detail">
+            <p class="eyebrow">Briefing</p>
+            <h2 id="skirmishMapName">Jungle Outpost</h2>
+            <p id="skirmishBriefing" class="muted"></p>
+            <div id="mapChoices" class="choice-grid"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <aside id="hud" class="hud" hidden>
+      <div class="hud-top">
+        <div><span class="hud-label">Modo</span><strong id="hudMode">Conquest</strong></div>
+        <div><span class="hud-label">Objetivo</span><strong id="hudObjective">Aguardar ordem</strong></div>
+        <div><span class="hud-label">Tempo</span><strong id="hudTimer">00:00</strong></div>
+      </div>
+      <div class="squad-feed">
+        <strong>Esquadroes</strong>
+        <span id="squadFeed">Aguardando contato</span>
+      </div>
+      <div class="hud-bottom">
+        <div class="hud-block">
+          <span>Blindagem</span>
+          <div class="meter"><div id="armorBar" class="meter-fill"></div></div>
+          <strong id="armorText">100%</strong>
+        </div>
+        <div class="hud-block">
+          <span>Escudo</span>
+          <div class="meter"><div id="shieldBar" class="meter-fill shield"></div></div>
+          <strong id="shieldText">100%</strong>
+        </div>
+        <div class="hud-block">
+          <span>Calor</span>
+          <div class="meter"><div id="heatBar" class="meter-fill heat"></div></div>
+          <strong id="heatText">0%</strong>
+        </div>
+        <div class="hud-weapon">
+          <span id="hudMech">VANGUARD</span>
+          <strong id="hudWeapon">Autocannon</strong>
+          <small id="hudOrdnance">Rocket Pod</small>
+        </div>
+      </div>
+    </aside>
+
+    <div id="escModal" class="modal-backdrop" hidden>
+      <div class="modal">
+        <h2>Menu Tatico</h2>
+        <button class="command primary" data-action="resume">Continuar</button>
+        <button class="command" data-action="hangar">Hangar</button>
+        <button class="command" data-action="profile">Perfil</button>
+        <button class="command" data-action="endMission">Voltar ao menu</button>
+      </div>
+    </div>
+
+    <div id="settingsModal" class="modal-backdrop" hidden>
+      <div class="modal">
+        <div class="modal-head">
+          <h2>Configuracoes</h2>
+          <button class="icon-button" data-action="closeSettings">X</button>
+        </div>
+        <label class="toggle-line"><input id="settingBloom" type="checkbox" checked> Bloom preparado</label>
+        <label class="toggle-line"><input id="settingShake" type="checkbox" checked> Camera shake</label>
+        <label class="toggle-line"><input id="settingAudio" type="checkbox" checked> Audio sintetico</label>
+        <label class="field-label">Escala do HUD
+          <input id="settingHudScale" type="range" min="85" max="115" value="100">
+        </label>
+        <button class="command small primary" data-action="saveSettings">Salvar</button>
+      </div>
+    </div>
+
+    <div id="toastStack" class="toast-stack"></div>
+  </div>
+
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script>
+    (() => {
+      const STORAGE_KEY = "IRONCLAD_2_0_FINAL_SAVE";
+
+      const FACTIONS = [
+        { id: "AEGIS UNION", label: "AEGIS", desc: "Defesa, controle e blindagem." },
+        { id: "TITAN INDUSTRIES", label: "TITAN", desc: "Poder industrial e cerco." },
+        { id: "SHADOW PROTOCOL", label: "SHADOW", desc: "Mobilidade, furtividade e ruptura." }
+      ];
+
+      const MECHS = {
+        VANGUARD: {
+          id: "VANGUARD",
+          role: "Assalto equilibrado",
+          desc: "Plataforma padrao da AEGIS Union, balanceada para qualquer frente de combate.",
+          color: 0x63d1b6,
+          accent: 0xf0b257,
+          stats: { armor: 72, shield: 68, mobility: 62, heat: 56, firepower: 66 },
+          primary: "Autocannon",
+          ordnance: "Rocket Pod"
+        },
+        BEHEMOTH: {
+          id: "BEHEMOTH",
+          role: "Cerco pesado",
+          desc: "Chassi industrial lento, massivo e feito para esmagar posicoes fortificadas.",
+          color: 0xa8b7be,
+          accent: 0xff6b5f,
+          stats: { armor: 94, shield: 70, mobility: 28, heat: 48, firepower: 86 },
+          primary: "Flak Cannon",
+          ordnance: "Plasma Mortar"
+        },
+        PREDATOR: {
+          id: "PREDATOR",
+          role: "Cacador avancado",
+          desc: "Mech movel de pressao, ideal para flancos e perseguicao de alvos isolados.",
+          color: 0x87a4b5,
+          accent: 0x9cf2d3,
+          stats: { armor: 58, shield: 54, mobility: 82, heat: 62, firepower: 70 },
+          primary: "Pulse Rifle",
+          ordnance: "Swarm Missile"
+        },
+        "TITAN-X": {
+          id: "TITAN-X",
+          role: "Prototipo estrategico",
+          desc: "Unidade experimental com dano extremo e nucleo termico instavel.",
+          color: 0xd6c08d,
+          accent: 0xff8f5f,
+          stats: { armor: 84, shield: 76, mobility: 42, heat: 34, firepower: 96 },
+          primary: "Plasma Cannon",
+          ordnance: "Orbital Beacon"
+        },
+        PHANTOM: {
+          id: "PHANTOM",
+          role: "Infiltracao",
+          desc: "Chassi Shadow Protocol com baixa assinatura e velocidade alta.",
+          color: 0x8f98ff,
+          accent: 0x63d1b6,
+          stats: { armor: 44, shield: 62, mobility: 96, heat: 74, firepower: 58 },
+          primary: "Railgun",
+          ordnance: "EMP Grenade"
+        }
+      };
+
+      const WEAPONS = {
+        Autocannon: { damage: 14, heat: 12, cooldown: 0.24, range: 7.2 },
+        Railgun: { damage: 42, heat: 34, cooldown: 1.18, range: 12.5 },
+        "Flak Cannon": { damage: 28, heat: 24, cooldown: 0.82, range: 5.4 },
+        "Plasma Cannon": { damage: 36, heat: 42, cooldown: 1.05, range: 8.8 },
+        "Pulse Rifle": { damage: 11, heat: 9, cooldown: 0.17, range: 7.8 }
+      };
+
+      const ORDNANCE = {
+        "Rocket Pod": { damage: 56, radius: 3.0, cooldown: 8 },
+        "Swarm Missile": { damage: 42, radius: 2.2, cooldown: 6.5 },
+        "EMP Grenade": { damage: 12, radius: 3.6, cooldown: 7.5 },
+        "Plasma Mortar": { damage: 72, radius: 4.4, cooldown: 11 },
+        "Thermite Launcher": { damage: 38, radius: 2.6, cooldown: 8.5 },
+        "Orbital Beacon": { damage: 120, radius: 6.8, cooldown: 18 }
+      };
+
+      const MAPS = {
+        JUNGLE_OUTPOST: {
+          name: "Jungle Outpost",
+          climate: "Umido",
+          briefing: "Posto avancado cercado por selva densa, trilhas estreitas e plataformas militares elevadas.",
+          ground: 0x203022,
+          sky: 0x07100b,
+          fog: 0x08130d,
+          accent: 0x63d1b6,
+          spawns: { allied: [-8, 0, 7], enemy: [9, 0, -8] },
+          structures: [["base", -6, 4, 0.3], ["bunker", 3, -2, -0.4], ["tower", -1, -6, 0.1], ["bridge", 4, 5, 1.57]],
+          props: ["tree", "tree", "rock", "crate", "tree", "antenna", "rock", "tree"]
+        },
+        SCORCHED_CANYON: {
+          name: "Scorched Canyon",
+          climate: "Arido",
+          briefing: "Desfiladeiro queimado por artilharia orbital, com pontes estreitas e linhas longas de tiro.",
+          ground: 0x3a2518,
+          sky: 0x120b07,
+          fog: 0x1a1009,
+          accent: 0xf0b257,
+          spawns: { allied: [-10, 0, 0], enemy: [11, 0, -2] },
+          structures: [["bridge", 0, 0, 0], ["bunker", -4, -4, 0.8], ["tower", 6, -6, 0.2], ["refinery", 5, 5, -0.3]],
+          props: ["rock", "rock", "debris", "crate", "rock", "antenna", "debris", "rock"]
+        },
+        NEO_CITY_RUINS: {
+          name: "Neo City Ruins",
+          climate: "Urbano",
+          briefing: "Ruinas verticais de uma megacidade, com corredores de concreto e cobertura abundante.",
+          ground: 0x242b33,
+          sky: 0x080b10,
+          fog: 0x0b1018,
+          accent: 0x8f98ff,
+          spawns: { allied: [-7, 0, -7], enemy: [8, 0, 8] },
+          structures: [["base", -5, 5, 0.1], ["tower", 2, -5, 0.5], ["bunker", 5, 1, -0.1], ["bridge", -1, 0, 1.57]],
+          props: ["ruin", "ruin", "crate", "debris", "ruin", "antenna", "crate", "debris"]
+        },
+        ARCTIC_FACILITY: {
+          name: "Arctic Facility",
+          climate: "Polar",
+          briefing: "Instalacao congelada com visibilidade limpa, gelo exposto e torres de defesa.",
+          ground: 0xd9edf1,
+          sky: 0x0c1218,
+          fog: 0x101821,
+          accent: 0x5fa8ff,
+          spawns: { allied: [-9, 0, 6], enemy: [9, 0, -7] },
+          structures: [["refinery", 2, -2, 0.2], ["base", -5, 3, -0.2], ["tower", -5, -4, 0.1], ["bunker", 5, 5, 0.7]],
+          props: ["ice", "ice", "crate", "antenna", "ice", "rock", "crate", "debris"]
+        }
+      };
+
+      const BALANCE = {
+        difficulty: {
+          Recruta: { enemyDamage: 0.82, enemyHealth: 0.86, xp: 0.8 },
+          Normal: { enemyDamage: 1.0, enemyHealth: 1.0, xp: 1.0 },
+          Veterano: { enemyDamage: 1.18, enemyHealth: 1.12, xp: 1.25 },
+          Lenda: { enemyDamage: 1.36, enemyHealth: 1.28, xp: 1.55 }
+        }
+      };
+
+      const ACHIEVEMENTS = [
+        ["first_drop", "Primeira queda", "Iniciar a primeira operacao."],
+        ["hangar_rat", "Tecnico de hangar", "Equipar um mech."],
+        ["faction_oath", "Juramento de faccao", "Escolher uma faccao."],
+        ["clean_field", "Campo limpo", "Vencer uma partida."],
+        ["veteran_path", "Caminho veterano", "Alcancar o nivel 3."]
+      ];
+
+      const $ = (id) => document.getElementById(id);
+      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+      function defaultProfile() {
+        return {
+          callsign: "RAVEN-01",
+          faction: "AEGIS UNION",
+          level: 1,
+          rank: "Recruta",
+          xp: 0,
+          xpToNext: 1000,
+          selectedMech: "VANGUARD",
+          selectedPrimary: "Autocannon",
+          selectedOrdnance: "Rocket Pod",
+          selectedMap: "JUNGLE_OUTPOST",
+          difficulty: "Normal",
+          unlockedMechs: ["VANGUARD", "PREDATOR", "BEHEMOTH", "PHANTOM", "TITAN-X"],
+          settings: { bloom: true, shake: true, audio: true, hudScale: 100 },
+          stats: { matches: 0, wins: 0, kills: 0, damage: 0, timePlayed: 0 },
+          achievements: ACHIEVEMENTS.map(([id, name, desc]) => ({ id, name, desc, unlocked: false }))
+        };
+      }
+
+      function loadProfile() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          const base = defaultProfile();
+          if (!raw) return base;
+          const saved = JSON.parse(raw);
+          const profile = Object.assign(base, saved);
+          profile.settings = Object.assign(base.settings, saved.settings || {});
+          profile.stats = Object.assign(base.stats, saved.stats || {});
+          profile.achievements = base.achievements.map((achievement) => {
+            const existing = (saved.achievements || []).find((item) => item.id === achievement.id);
+            return Object.assign(achievement, existing || {});
+          });
+          return profile;
+        } catch (error) {
+          console.warn("Save corrompido. Usando perfil padrao.", error);
+          return defaultProfile();
+        }
+      }
+
+      function saveProfile(profile) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+      }
+
+      function rankFor(level) {
+        if (level >= 20) return "Lenda";
+        if (level >= 15) return "Comandante";
+        if (level >= 10) return "Elite";
+        if (level >= 6) return "Veterano";
+        if (level >= 3) return "Operador";
+        return "Recruta";
+      }
+
+      class AudioBus {
+        constructor(app) {
+          this.app = app;
+          this.ctx = null;
+          this.master = null;
+          this.music = null;
+          this.sfx = null;
+          this.radio = null;
+          this.oscillators = [];
+          this.lastRadio = 0;
+          document.addEventListener("pointerdown", () => this.unlock(), { once: true });
+          document.addEventListener("keydown", () => this.unlock(), { once: true });
+        }
+
+        unlock() {
+          if (this.ctx || !this.app.profile.settings.audio) return;
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return;
+          this.ctx = new AC();
+          this.master = this.ctx.createGain();
+          this.music = this.ctx.createGain();
+          this.sfx = this.ctx.createGain();
+          this.radio = this.ctx.createGain();
+          this.master.gain.value = 0.68;
+          this.music.gain.value = 0.0;
+          this.sfx.gain.value = 0.62;
+          this.radio.gain.value = 0.48;
+          this.music.connect(this.master);
+          this.sfx.connect(this.master);
+          this.radio.connect(this.master);
+          this.master.connect(this.ctx.destination);
+          this.startMusic();
+        }
+
+        now() {
+          return this.ctx ? this.ctx.currentTime : 0;
+        }
+
+        tone(freq, type, gainValue, duration, destination) {
+          if (!this.ctx) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = type || "sine";
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(gainValue, this.now());
+          gain.gain.exponentialRampToValueAtTime(0.001, this.now() + duration);
+          osc.connect(gain);
+          gain.connect(destination || this.sfx);
+          osc.start();
+          osc.stop(this.now() + duration);
+        }
+
+        noise(gainValue, duration, filterFreq, destination) {
+          if (!this.ctx) return;
+          const length = Math.floor(this.ctx.sampleRate * duration);
+          const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < length; i += 1) data[i] = Math.random() * 2 - 1;
+          const source = this.ctx.createBufferSource();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          filter.type = "lowpass";
+          filter.frequency.value = filterFreq;
+          gain.gain.setValueAtTime(gainValue, this.now());
+          gain.gain.exponentialRampToValueAtTime(0.001, this.now() + duration);
+          source.buffer = buffer;
+          source.connect(filter);
+          filter.connect(gain);
+          gain.connect(destination || this.sfx);
+          source.start();
+          source.stop(this.now() + duration);
+        }
+
+        startMusic() {
+          if (!this.ctx || this.oscillators.length) return;
+          const bass = this.ctx.createOscillator();
+          const pad = this.ctx.createOscillator();
+          const bassGain = this.ctx.createGain();
+          const padGain = this.ctx.createGain();
+          bass.type = "sawtooth";
+          pad.type = "triangle";
+          bass.frequency.value = 55;
+          pad.frequency.value = 110;
+          bassGain.gain.value = 0.045;
+          padGain.gain.value = 0.025;
+          bass.connect(bassGain);
+          pad.connect(padGain);
+          bassGain.connect(this.music);
+          padGain.connect(this.music);
+          bass.start();
+          pad.start();
+          this.oscillators = [bass, pad];
+        }
+
+        setIntensity(value) {
+          if (!this.ctx || !this.music) return;
+          this.music.gain.setTargetAtTime(value, this.now(), 0.35);
+        }
+
+        weapon(name) {
+          this.unlock();
+          const weapon = WEAPONS[name] || WEAPONS.Autocannon;
+          this.tone(name === "Railgun" ? 190 : 90, "square", 0.12, Math.min(0.36, weapon.cooldown), this.sfx);
+          this.noise(0.18, Math.min(0.28, weapon.cooldown), 900, this.sfx);
+        }
+
+        explosion(size) {
+          this.unlock();
+          this.tone(size === "large" ? 42 : 70, "sawtooth", size === "large" ? 0.24 : 0.16, 0.72, this.sfx);
+          this.noise(size === "large" ? 0.46 : 0.28, size === "large" ? 1.0 : 0.58, 520, this.sfx);
+        }
+
+        radioLine(message) {
+          this.unlock();
+          const now = performance.now();
+          if (now - this.lastRadio < 1200) return;
+          this.lastRadio = now;
+          this.noise(0.12, 0.14, 2400, this.radio);
+          this.tone(230, "sawtooth", 0.055, 0.32, this.radio);
+          this.app.toast("Radio: " + message);
+        }
+      }
+
+      class Unit {
+        constructor(app, team, mechId, position, behavior) {
+          this.app = app;
+          this.team = team;
+          this.mechId = mechId;
+          this.behavior = behavior || "advance";
+          this.health = team === "enemy" ? 100 * app.difficulty.enemyHealth : 100;
+          this.shield = 100;
+          this.heat = 0;
+          this.cooldown = Math.random() * 0.6;
+          this.state = "forming";
+          this.target = null;
+          this.destination = position.clone();
+          this.cover = null;
+          this.mesh = app.createMech(mechId, 0.43);
+          this.mesh.position.copy(position);
+          this.mesh.rotation.y = team === "enemy" ? Math.PI : 0;
+          this.mesh.traverse((child) => {
+            child.userData.unit = this;
+          });
+          app.worldGroup.add(this.mesh);
+        }
+
+        get alive() {
+          return this.health > 0;
+        }
+
+        receiveDamage(amount) {
+          const shieldHit = Math.min(this.shield, amount * 0.65);
+          this.shield -= shieldHit;
+          this.health = Math.max(0, this.health - (amount - shieldHit));
+          this.app.spawnSparks(this.mesh.position, Math.ceil(amount), 0x9cf2d3);
+          this.app.flash(0.04);
+          if (!this.alive) {
+            this.state = "destroyed";
+            this.mesh.visible = false;
+            this.app.explosion(this.mesh.position, "medium", 0);
+            if (this.team === "enemy") this.app.mission.kills += 1;
+          }
+        }
+
+        update(delta) {
+          if (!this.alive) return;
+          this.cooldown = Math.max(0, this.cooldown - delta);
+          this.heat = Math.max(0, this.heat - 15 * delta);
+          const dx = this.destination.x - this.mesh.position.x;
+          const dz = this.destination.z - this.mesh.position.z;
+          const dist = Math.hypot(dx, dz);
+          const speed = this.mechId === "PHANTOM" || this.mechId === "PREDATOR" ? 3.1 : 2.3;
+          if (dist > 0.08) {
+            const step = Math.min(dist, speed * delta);
+            this.mesh.position.x += dx / dist * step;
+            this.mesh.position.z += dz / dist * step;
+            this.mesh.rotation.y = Math.atan2(dx, dz);
+          }
+          this.mesh.position.y = Math.sin(performance.now() * 0.002 + this.mesh.id) * 0.025;
+        }
+      }
+
+      class Ironclad {
+        constructor() {
+          this.profile = loadProfile();
+          this.profile.rank = rankFor(this.profile.level);
+          this.selectedHangarMech = this.profile.selectedMech;
+          this.scene = null;
+          this.camera = null;
+          this.renderer = null;
+          this.clock = null;
+          this.activeMech = null;
+          this.worldGroup = null;
+          this.particles = [];
+          this.units = [];
+          this.coverNodes = [];
+          this.structures = [];
+          this.keys = {};
+          this.raycaster = null;
+          this.weaponModel = null;
+          this.player = null;
+          this.spawnTimer = 0;
+          this.worldBounds = 28;
+          this.flashAmount = 0;
+          this.hitAmount = 0;
+          this.shake = 0;
+          this.audio = new AudioBus(this);
+          this.difficulty = BALANCE.difficulty[this.profile.difficulty] || BALANCE.difficulty.Normal;
+          this.mission = {
+            active: false,
+            mode: "Conquest",
+            mapId: this.profile.selectedMap,
+            seconds: 0,
+            armor: 100,
+            shield: 100,
+            heat: 0,
+            kills: 0,
+            objective: "Aguardar ordem"
+          };
+        }
+
+        init() {
+          this.bind();
+          this.populateStaticUi();
+          this.initThree();
+          this.renderAll();
+          this.showScreen("menu");
+          this.showMech(this.profile.selectedMech);
+          this.toast("IRONCLAD 2.0 final carregado.");
+          this.animate();
+        }
+
+        bind() {
+          document.addEventListener("click", (event) => {
+            const action = event.target.closest("[data-action]");
+            if (action) this.handle(action.dataset.action);
+            const faction = event.target.closest("[data-faction]");
+            if (faction) this.setFaction(faction.dataset.faction);
+            const mech = event.target.closest("[data-mech]");
+            if (mech) this.selectHangarMech(mech.dataset.mech);
+            const weapon = event.target.closest("[data-weapon]");
+            if (weapon) this.setWeapon(weapon.dataset.weapon);
+            const ordnance = event.target.closest("[data-ordnance]");
+            if (ordnance) this.setOrdnance(ordnance.dataset.ordnance);
+            const map = event.target.closest("[data-map]");
+            if (map) this.selectMap(map.dataset.map);
+          });
+
+          $("gameCanvas").addEventListener("click", () => {
+            if (!this.mission.active) return;
+            this.lockPointer();
+            this.playerFire();
+          });
+
+          document.addEventListener("mousedown", (event) => {
+            if (!this.mission.active || event.button !== 0) return;
+            this.lockPointer();
+            if (this.player) this.player.fireHeld = true;
+            this.playerFire();
+          });
+
+          document.addEventListener("mouseup", (event) => {
+            if (event.button === 0 && this.player) this.player.fireHeld = false;
+          });
+
+          document.addEventListener("mousemove", (event) => {
+            if (this.mission.active && document.pointerLockElement === $("gameCanvas")) {
+              this.look(event.movementX || 0, event.movementY || 0);
+            }
+          });
+
+          document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+              if (document.pointerLockElement === $("gameCanvas")) return;
+              event.preventDefault();
+              this.toggleEsc();
+            }
+            this.keys[event.code] = true;
+            if (event.key.toLowerCase() === "f" && this.mission.active) {
+              this.useOrdnance();
+            }
+          });
+
+          document.addEventListener("keyup", (event) => {
+            this.keys[event.code] = false;
+          });
+
+          $("mapSelect").addEventListener("change", () => this.selectMap($("mapSelect").value));
+          $("difficultySelect").addEventListener("change", () => {
+            this.profile.difficulty = $("difficultySelect").value;
+            this.difficulty = BALANCE.difficulty[this.profile.difficulty] || BALANCE.difficulty.Normal;
+            saveProfile(this.profile);
+            this.renderMenu();
+          });
+        }
+
+        populateStaticUi() {
+          $("factionChoices").innerHTML = FACTIONS.map((faction) => `
+            <button class="choice" data-faction="${faction.id}">
+              <strong>${faction.label}</strong><small>${faction.desc}</small>
+            </button>
+          `).join("");
+
+          $("mapSelect").innerHTML = Object.keys(MAPS).map((id) => `<option value="${id}">${MAPS[id].name}</option>`).join("");
+          $("mapChoices").innerHTML = Object.keys(MAPS).map((id) => `
+            <button class="choice" data-map="${id}">
+              <strong>${MAPS[id].name}</strong><small>${MAPS[id].climate}</small>
+            </button>
+          `).join("");
+        }
+
+        initThree() {
+          if (!window.THREE) {
+            $("fallback").style.display = "block";
+            return;
+          }
+
+          this.clock = new THREE.Clock();
+          this.scene = new THREE.Scene();
+          this.camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 120);
+          this.camera.position.set(5, 3.8, 7.8);
+          this.camera.lookAt(0, 1.8, 0);
+          this.scene.add(this.camera);
+          this.raycaster = new THREE.Raycaster();
+          this.renderer = new THREE.WebGLRenderer({ canvas: $("gameCanvas"), antialias: true });
+          this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+          this.renderer.setSize(window.innerWidth, window.innerHeight);
+          this.renderer.shadowMap.enabled = true;
+          this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+          this.renderer.toneMappingExposure = this.profile.settings.bloom ? 1.1 : 0.96;
+          this.scene.background = new THREE.Color(0x060a0e);
+          this.scene.fog = new THREE.Fog(0x060a0e, 14, 48);
+
+          this.scene.add(new THREE.HemisphereLight(0xb8f5e5, 0x11161a, 1.2));
+          const key = new THREE.DirectionalLight(0xe8fff5, 2.2);
+          key.position.set(6, 8, 5);
+          key.castShadow = true;
+          this.scene.add(key);
+          const rim = new THREE.DirectionalLight(0x63d1b6, 1.4);
+          rim.position.set(-8, 5, -6);
+          this.scene.add(rim);
+
+          this.worldGroup = new THREE.Group();
+          this.scene.add(this.worldGroup);
+          this.createViewWeapon();
+          this.buildHangarGround();
+          window.addEventListener("resize", () => this.resize());
+          window.addEventListener("pointermove", (event) => this.pointer(event));
+        }
+
+        createViewWeapon() {
+          if (!window.THREE || !this.camera) return;
+          const group = new THREE.Group();
+          group.name = "FPS_ViewWeapon";
+          group.position.set(0.42, -0.34, -0.72);
+          group.rotation.set(-0.08, -0.18, 0.02);
+
+          const dark = new THREE.MeshStandardMaterial({ color: 0x10171d, roughness: 0.72, metalness: 0.5 });
+          const accent = new THREE.MeshStandardMaterial({ color: 0x63d1b6, emissive: 0x123c34, emissiveIntensity: 0.25, roughness: 0.42, metalness: 0.34 });
+          const warning = new THREE.MeshStandardMaterial({ color: 0xf0b257, emissive: 0x5a3009, emissiveIntensity: 0.3, roughness: 0.45, metalness: 0.28 });
+
+          const body = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.2, 0.72), dark);
+          const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 0.78, 10), accent);
+          barrel.rotation.x = Math.PI / 2;
+          barrel.position.set(0, 0.02, -0.48);
+          const grip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.32, 0.18), dark);
+          grip.position.set(0.05, -0.22, 0.12);
+          grip.rotation.x = -0.35;
+          const heatCore = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.28), warning);
+          heatCore.position.set(-0.04, 0.11, -0.08);
+
+          group.add(body, barrel, grip, heatCore);
+          group.visible = false;
+          this.camera.add(group);
+          this.weaponModel = group;
+        }
+
+        buildHangarGround() {
+          if (!window.THREE || !this.worldGroup) return;
+          this.worldGroup.clear();
+          const floor = new THREE.Mesh(
+            new THREE.PlaneGeometry(60, 60),
+            new THREE.MeshStandardMaterial({ color: 0x10171b, roughness: 0.9, metalness: 0.1 })
+          );
+          floor.rotation.x = -Math.PI / 2;
+          floor.position.y = -0.03;
+          floor.receiveShadow = true;
+          this.worldGroup.add(floor);
+          const grid = new THREE.GridHelper(48, 48, 0x28444a, 0x17242a);
+          grid.position.y = 0.02;
+          this.worldGroup.add(grid);
+          for (let i = 0; i < 8; i += 1) {
+            const crate = this.box(0.8, 0.5, 0.8, 0x18262c);
+            crate.position.set((i % 4) * 1.2 - 2, 0.25, -5 - Math.floor(i / 4) * 1.1);
+            crate.rotation.y = i * 0.22;
+            this.worldGroup.add(crate);
+          }
+        }
+
+        handle(action) {
+          const actions = {
+            menu: () => this.openMenu(),
+            campaign: () => this.startCampaign(),
+            skirmish: () => this.showScreen("skirmish"),
+            launchSkirmish: () => this.launchSkirmish(),
+            hangar: () => this.openHangar(),
+            profile: () => this.openProfile(),
+            settings: () => this.openSettings(),
+            closeSettings: () => this.closeSettings(),
+            saveSettings: () => this.saveSettings(),
+            credits: () => this.toast("IRONCLAD 2.0 - Projeto em fases, integrado na Fase 4."),
+            equipMech: () => this.equipMech(),
+            saveCallsign: () => this.saveCallsign(),
+            resetSave: () => this.resetSave(),
+            esc: () => this.toggleEsc(),
+            resume: () => this.toggleEsc(false),
+            endMission: () => this.endMission()
+          };
+          if (actions[action]) actions[action]();
+        }
+
+        showScreen(name) {
+          const ids = { menu: "screenMenu", hangar: "screenHangar", profile: "screenProfile", skirmish: "screenSkirmish" };
+          Object.values(ids).forEach((id) => $(id).classList.remove("active"));
+          if (ids[name]) $(ids[name]).classList.add("active");
+        }
+
+        openMenu() {
+          this.showScreen("menu");
+          document.body.classList.remove("combat-active");
+          $("hud").hidden = true;
+          $("crosshair").hidden = true;
+          $("combatHint").hidden = true;
+          if (this.weaponModel) this.weaponModel.visible = false;
+          this.toggleEsc(false);
+          if (!this.mission.active) {
+            this.buildHangarGround();
+            this.showMech(this.profile.selectedMech);
+          }
+          this.renderAll();
+        }
+
+        openHangar() {
+          this.toggleEsc(false);
+          this.showScreen("hangar");
+          $("hud").hidden = true;
+          $("crosshair").hidden = true;
+          if (this.weaponModel) this.weaponModel.visible = false;
+          this.renderHangar();
+          this.showMech(this.selectedHangarMech);
+        }
+
+        openProfile() {
+          this.toggleEsc(false);
+          this.showScreen("profile");
+          $("hud").hidden = true;
+          $("crosshair").hidden = true;
+          if (this.weaponModel) this.weaponModel.visible = false;
+          this.renderProfile();
+        }
+
+        openSettings() {
+          $("settingBloom").checked = this.profile.settings.bloom;
+          $("settingShake").checked = this.profile.settings.shake;
+          $("settingAudio").checked = this.profile.settings.audio;
+          $("settingHudScale").value = this.profile.settings.hudScale;
+          $("settingsModal").hidden = false;
+        }
+
+        closeSettings() {
+          $("settingsModal").hidden = true;
+        }
+
+        saveSettings() {
+          this.profile.settings.bloom = $("settingBloom").checked;
+          this.profile.settings.shake = $("settingShake").checked;
+          this.profile.settings.audio = $("settingAudio").checked;
+          this.profile.settings.hudScale = Number($("settingHudScale").value);
+          if (this.renderer) this.renderer.toneMappingExposure = this.profile.settings.bloom ? 1.1 : 0.96;
+          this.applyHudScale();
+          saveProfile(this.profile);
+          this.closeSettings();
+          this.toast("Configuracoes salvas.");
+        }
+
+        toggleEsc(force) {
+          const modal = $("escModal");
+          const open = typeof force === "boolean" ? force : modal.hidden;
+          modal.hidden = !open;
+        }
+
+        setFaction(faction) {
+          this.profile.faction = faction;
+          this.unlock("faction_oath");
+          saveProfile(this.profile);
+          this.renderAll();
+          this.toast("Faccao selecionada: " + faction);
+        }
+
+        selectHangarMech(mechId) {
+          this.selectedHangarMech = mechId;
+          this.renderHangar();
+          this.showMech(mechId);
+        }
+
+        equipMech() {
+          this.profile.selectedMech = this.selectedHangarMech;
+          const mech = MECHS[this.selectedHangarMech];
+          this.profile.selectedPrimary = mech.primary;
+          this.profile.selectedOrdnance = mech.ordnance;
+          this.unlock("hangar_rat");
+          saveProfile(this.profile);
+          this.renderAll();
+          this.toast("Mech equipado: " + mech.id);
+        }
+
+        setWeapon(name) {
+          this.profile.selectedPrimary = name;
+          saveProfile(this.profile);
+          this.renderHangar();
+          this.renderMenu();
+          this.toast("Arma equipada: " + name);
+        }
+
+        setOrdnance(name) {
+          this.profile.selectedOrdnance = name;
+          saveProfile(this.profile);
+          this.renderHangar();
+          this.toast("Ordnance equipada: " + name);
+        }
+
+        selectMap(mapId) {
+          this.profile.selectedMap = mapId;
+          $("mapSelect").value = mapId;
+          saveProfile(this.profile);
+          this.renderSkirmish();
+          this.renderMenu();
+        }
+
+        saveCallsign() {
+          const value = $("callsignInput").value.trim().slice(0, 18) || "RAVEN-01";
+          this.profile.callsign = value;
+          saveProfile(this.profile);
+          this.renderAll();
+          this.toast("Codinome salvo: " + value);
+        }
+
+        resetSave() {
+          localStorage.removeItem(STORAGE_KEY);
+          this.profile = defaultProfile();
+          this.selectedHangarMech = this.profile.selectedMech;
+          this.difficulty = BALANCE.difficulty[this.profile.difficulty];
+          saveProfile(this.profile);
+          this.renderAll();
+          this.toast("Save resetado.");
+        }
+
+        startCampaign() {
+          this.profile.selectedMap = "JUNGLE_OUTPOST";
+          this.profile.difficulty = "Normal";
+          this.difficulty = BALANCE.difficulty.Normal;
+          this.startMission("Campanha", "JUNGLE_OUTPOST");
+        }
+
+        launchSkirmish() {
+          this.profile.difficulty = $("difficultySelect").value;
+          this.difficulty = BALANCE.difficulty[this.profile.difficulty] || BALANCE.difficulty.Normal;
+          this.startMission($("modeSelect").value, $("mapSelect").value);
+        }
+
+        startMission(mode, mapId) {
+          this.audio.unlock();
+          this.mission = {
+            active: true,
+            mode,
+            mapId,
+            seconds: 0,
+            armor: 100,
+            shield: 100,
+            heat: 0,
+            kills: 0,
+            targetKills: mode === "Survival" ? 18 : 12,
+            wave: 0,
+            objective: "Abater contatos inimigos"
+          };
+          this.profile.stats.matches += 1;
+          this.addXp(80);
+          this.unlock("first_drop");
+          saveProfile(this.profile);
+          this.showScreen("combat");
+          document.body.classList.add("combat-active");
+          $("hud").hidden = false;
+          $("crosshair").hidden = false;
+          $("combatHint").hidden = false;
+          this.toggleEsc(false);
+          this.buildWorld(mapId);
+          this.resetPlayer(mapId);
+          this.spawnSquads(mapId);
+          this.lockPointer();
+          this.audio.radioLine("Operacao iniciada. Avancar para contato.");
+          this.toast("Mapa carregado: " + MAPS[mapId].name);
+        }
+
+        endMission() {
+          this.mission.active = false;
+          document.body.classList.remove("combat-active");
+          $("hud").hidden = true;
+          $("crosshair").hidden = true;
+          $("combatHint").hidden = true;
+          this.toggleEsc(false);
+          if (document.pointerLockElement === $("gameCanvas")) document.exitPointerLock();
+          this.clearParticles();
+          this.audio.radioLine("Operacao encerrada. Retorno autorizado.");
+          this.openMenu();
+        }
+
+        completeMission() {
+          if (!this.mission.active) return;
+          this.mission.active = false;
+          document.body.classList.remove("combat-active");
+          $("combatHint").hidden = true;
+          $("crosshair").hidden = true;
+          if (this.weaponModel) this.weaponModel.visible = false;
+          if (document.pointerLockElement === $("gameCanvas")) document.exitPointerLock();
+          this.profile.stats.wins += 1;
+          this.profile.stats.kills += this.mission.kills;
+          this.profile.stats.timePlayed += Math.round(this.mission.seconds);
+          this.addXp(Math.round(450 * (BALANCE.difficulty[this.profile.difficulty] || BALANCE.difficulty.Normal).xp));
+          this.unlock("clean_field");
+          saveProfile(this.profile);
+          this.mission.objective = "Area protegida - extracao disponivel";
+          this.updateHud();
+          this.audio.radioLine("Area segura. Objetivo concluido.");
+          this.toast("Objetivo concluido. Vitoria registrada.");
+        }
+
+        addXp(amount) {
+          this.profile.xp += amount;
+          while (this.profile.xp >= this.profile.xpToNext) {
+            this.profile.xp -= this.profile.xpToNext;
+            this.profile.level += 1;
+            this.profile.xpToNext = 1000 + (this.profile.level - 1) * 450;
+          }
+          this.profile.rank = rankFor(this.profile.level);
+          if (this.profile.level >= 3) this.unlock("veteran_path");
+        }
+
+        unlock(id) {
+          const achievement = this.profile.achievements.find((item) => item.id === id);
+          if (achievement && !achievement.unlocked) {
+            achievement.unlocked = true;
+            achievement.unlockedAt = new Date().toISOString();
+            this.toast("Conquista desbloqueada: " + achievement.name);
+          }
+        }
+
+        resetPlayer(mapId) {
+          if (!window.THREE || !this.camera) return;
+          const spawn = MAPS[mapId].spawns.allied;
+          const mech = MECHS[this.profile.selectedMech] || MECHS.VANGUARD;
+          this.player = {
+            position: new THREE.Vector3(spawn[0], 1.85, spawn[2]),
+            velocity: new THREE.Vector3(),
+            yaw: Math.PI,
+            pitch: 0,
+            speed: 8.4 + mech.stats.mobility * 0.035,
+            sprintMultiplier: 1.9,
+            boost: 100,
+            armor: 100,
+            shield: 100,
+            heat: 0,
+            weaponCooldown: 0,
+            ordnanceCooldown: 0,
+            fireHeld: false,
+            dead: false,
+            bob: 0
+          };
+          this.camera.position.copy(this.player.position);
+          this.camera.rotation.order = "YXZ";
+          this.updateCameraRotation();
+          if (this.weaponModel) this.weaponModel.visible = true;
+        }
+
+        lockPointer() {
+          const canvas = $("gameCanvas");
+          if (this.mission.active && canvas.requestPointerLock && document.pointerLockElement !== canvas) {
+            canvas.requestPointerLock();
+          }
+        }
+
+        look(dx, dy) {
+          if (!this.player) return;
+          this.player.yaw -= dx * 0.0022;
+          this.player.pitch = clamp(this.player.pitch - dy * 0.002, -1.22, 1.12);
+          this.updateCameraRotation();
+          $("combatHint").hidden = true;
+        }
+
+        updateCameraRotation() {
+          if (!this.camera || !this.player) return;
+          this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+        }
+
+        updatePlayer(delta) {
+          if (!window.THREE || !this.player || this.player.dead) return;
+
+          const forward = new THREE.Vector3(Math.sin(this.player.yaw), 0, -Math.cos(this.player.yaw));
+          const right = new THREE.Vector3(Math.cos(this.player.yaw), 0, Math.sin(this.player.yaw));
+          const move = new THREE.Vector3();
+          if (this.keys.KeyW) move.add(forward);
+          if (this.keys.KeyS) move.sub(forward);
+          if (this.keys.KeyD) move.add(right);
+          if (this.keys.KeyA) move.sub(right);
+          if (move.lengthSq() > 0) move.normalize();
+
+          const sprinting = this.keys.ShiftLeft || this.keys.ShiftRight;
+          const canBoost = sprinting && this.player.boost > 1 && move.lengthSq() > 0;
+          const speed = this.player.speed * (canBoost ? this.player.sprintMultiplier : 1);
+          if (canBoost) {
+            this.player.boost = Math.max(0, this.player.boost - 38 * delta);
+            this.spawnSmoke(this.player.position.clone().add(new THREE.Vector3(0, -1.1, 0)), 1);
+          } else {
+            this.player.boost = Math.min(100, this.player.boost + 24 * delta);
+          }
+
+          this.player.position.addScaledVector(move, speed * delta);
+          this.player.position.x = clamp(this.player.position.x, -this.worldBounds, this.worldBounds);
+          this.player.position.z = clamp(this.player.position.z, -this.worldBounds, this.worldBounds);
+
+          const moving = move.lengthSq() > 0;
+          this.player.bob += delta * (moving ? (canBoost ? 18 : 11) : 4);
+          const bobY = moving ? Math.sin(this.player.bob) * (canBoost ? 0.08 : 0.045) : Math.sin(this.player.bob) * 0.012;
+          this.camera.position.copy(this.player.position);
+          this.camera.position.y += bobY;
+          this.updateCameraRotation();
+
+          this.player.weaponCooldown = Math.max(0, this.player.weaponCooldown - delta);
+          this.player.ordnanceCooldown = Math.max(0, this.player.ordnanceCooldown - delta);
+          this.player.heat = Math.max(0, this.player.heat - 26 * delta);
+          this.mission.armor = this.player.armor;
+          this.mission.shield = this.player.shield;
+          this.mission.heat = this.player.heat;
+
+          if (this.weaponModel) {
+            this.weaponModel.position.x = 0.42 + Math.sin(this.player.bob) * 0.018;
+            this.weaponModel.position.y = -0.34 + Math.cos(this.player.bob * 0.8) * 0.018 - this.player.heat * 0.0008;
+          }
+
+          if (this.player.fireHeld) this.playerFire();
+        }
+
+        buildWorld(mapId) {
+          if (!window.THREE || !this.worldGroup) return;
+          const map = MAPS[mapId];
+          this.worldGroup.clear();
+          this.units = [];
+          this.coverNodes = [];
+          this.structures = [];
+          this.activeMech = null;
+          this.scene.background = new THREE.Color(map.sky);
+          this.scene.fog = new THREE.Fog(map.fog, 12, 54);
+
+          const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(66, 66),
+            new THREE.MeshStandardMaterial({ color: map.ground, roughness: 0.92, metalness: 0.04 })
+          );
+          ground.rotation.x = -Math.PI / 2;
+          ground.position.y = -0.04;
+          ground.receiveShadow = true;
+          this.worldGroup.add(ground);
+          const grid = new THREE.GridHelper(50, 25, map.accent, map.ground);
+          grid.position.y = 0.02;
+          this.worldGroup.add(grid);
+
+          map.structures.forEach(([type, x, z, rot]) => {
+            const structure = this.createStructure(type, map.accent);
+            structure.position.set(x, 0, z);
+            structure.rotation.y = rot;
+            this.worldGroup.add(structure);
+            this.structures.push(structure);
+            this.coverNodes.push({ position: structure.position.clone(), radius: type === "base" ? 3.4 : 2.4, occupied: null });
+          });
+
+          const places = [[-10, -7], [-8, 2], [-6, 8], [-2, -9], [0, 6], [4, -7], [7, 1], [10, 7]];
+          map.props.forEach((prop, index) => {
+            const item = this.createProp(prop, map.accent);
+            const p = places[index % places.length];
+            item.position.set(p[0] + Math.sin(index) * 0.7, 0, p[1] + Math.cos(index) * 0.7);
+            item.rotation.y = index * 0.47;
+            this.worldGroup.add(item);
+            this.coverNodes.push({ position: item.position.clone(), radius: 1.6, occupied: null });
+          });
+        }
+
+        spawnSquads(mapId) {
+          if (!window.THREE) return;
+          this.units = [];
+          this.spawnTimer = 0;
+          this.spawnEnemyWave(mapId, 5);
+        }
+
+        spawnEnemyWave(mapId, count) {
+          if (!window.THREE) return;
+          const map = MAPS[mapId];
+          const base = new THREE.Vector3(...map.spawns.enemy);
+          const roster = mapId === "SCORCHED_CANYON"
+            ? ["BEHEMOTH", "VANGUARD", "PREDATOR"]
+            : mapId === "NEO_CITY_RUINS"
+              ? ["PHANTOM", "PREDATOR", "VANGUARD"]
+              : ["PREDATOR", "VANGUARD", "PHANTOM"];
+
+          for (let i = 0; i < count; i += 1) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 2.2 + Math.random() * 8;
+            const position = base.clone().add(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius));
+            const mechId = roster[i % roster.length];
+            const behavior = i % 3 === 0 ? "rush" : i % 3 === 1 ? "flank" : "advance";
+            this.units.push(new Unit(this, "enemy", mechId, position, behavior));
+          }
+          this.mission.wave += 1;
+          this.audio.radioLine("Nova onda inimiga no setor.");
+        }
+
+        updateMission(delta) {
+          if (!this.mission.active) return;
+          this.mission.seconds += delta;
+          this.updatePlayer(delta);
+          this.updateAI(delta);
+          const enemies = this.units.filter((unit) => unit.team === "enemy" && unit.alive).length;
+          if (enemies <= 1 && this.mission.kills < this.mission.targetKills) {
+            this.spawnTimer -= delta;
+            if (this.spawnTimer <= 0) {
+              this.spawnTimer = 3.2;
+              this.spawnEnemyWave(this.mission.mapId, Math.min(7, 3 + this.mission.wave));
+            }
+          }
+          if (this.player && this.player.shield < 100 && this.player.armor > 0) {
+            this.player.shield = Math.min(100, this.player.shield + 10 * delta);
+          }
+          this.mission.objective = `Abater inimigos: ${this.mission.kills} / ${this.mission.targetKills}`;
+          this.updateHud();
+          if (this.mission.kills >= this.mission.targetKills && enemies <= 0) this.completeMission();
+        }
+
+        updateAI(delta) {
+          this.units.forEach((unit) => {
+            if (!unit.alive || unit.team !== "enemy" || !this.player || this.player.dead) return;
+            const targetPosition = this.player.position;
+            const nearest = unit.mesh.position.distanceTo(targetPosition);
+            const weaponName = unit.mechId === "BEHEMOTH" ? "Flak Cannon" : unit.mechId === "PHANTOM" ? "Railgun" : "Autocannon";
+            const weapon = WEAPONS[weaponName];
+            if ((unit.health < 28 || unit.shield < 16) && this.coverNodes.length && unit.behavior !== "rush") {
+              unit.state = "taking_cover";
+              unit.destination.copy(this.nearestCover(unit).position);
+            } else if (nearest <= weapon.range + 2.2 && unit.behavior === "flank" && nearest > 3.0) {
+              unit.state = "flanking";
+              unit.destination.copy(this.flankPlayerPosition(unit));
+            } else if (nearest <= weapon.range + 1.5) {
+              unit.state = "firing";
+              const strafe = this.flankPlayerPosition(unit);
+              unit.destination.copy(nearest < 4.2 ? strafe : unit.mesh.position);
+              this.enemyFire(unit, weaponName, weapon, nearest);
+            } else {
+              unit.state = "advancing";
+              unit.destination.copy(targetPosition);
+            }
+            unit.update(delta);
+          });
+        }
+
+        nearestCover(unit) {
+          let best = this.coverNodes[0];
+          let score = Infinity;
+          this.coverNodes.forEach((node) => {
+            const d = unit.mesh.position.distanceTo(node.position);
+            if (d < score) {
+              best = node;
+              score = d;
+            }
+          });
+          return best;
+        }
+
+        flankPosition(unit, target) {
+          const origin = unit.mesh.position;
+          const dest = target.mesh.position;
+          const dx = dest.x - origin.x;
+          const dz = dest.z - origin.z;
+          const len = Math.hypot(dx, dz) || 1;
+          const side = unit.mesh.id % 2 === 0 ? 1 : -1;
+          return new THREE.Vector3(dest.x + (-dz / len) * side * 3.5, 0, dest.z + (dx / len) * side * 3.5);
+        }
+
+        flankPlayerPosition(unit) {
+          const origin = unit.mesh.position;
+          const dest = this.player.position;
+          const dx = dest.x - origin.x;
+          const dz = dest.z - origin.z;
+          const len = Math.hypot(dx, dz) || 1;
+          const side = unit.mesh.id % 2 === 0 ? 1 : -1;
+          return new THREE.Vector3(dest.x + (-dz / len) * side * 5.2, 0, dest.z + (dx / len) * side * 5.2);
+        }
+
+        enemyFire(unit, weaponName, weapon, distance) {
+          if (unit.cooldown > 0 || unit.heat > 88 || !this.player) return;
+          const accuracy = clamp(1 - distance / (weapon.range + 7), 0.18, 0.82);
+          unit.heat = clamp(unit.heat + weapon.heat * 0.7, 0, 100);
+          unit.cooldown = weapon.cooldown * (unit.behavior === "rush" ? 0.78 : 1.05);
+          const pos = unit.mesh.position.clone();
+          pos.y += 1.45;
+          const dir = this.player.position.clone().sub(unit.mesh.position).normalize();
+          this.spawnMuzzle(pos, dir);
+          if (Math.random() < accuracy) {
+            this.applyPlayerDamage(weapon.damage * 0.72 * this.difficulty.enemyDamage);
+          } else {
+            const miss = this.player.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2.6, -1.1, (Math.random() - 0.5) * 2.6));
+            this.spawnSparks(miss, 4, 0x5fa8ff);
+          }
+          if (Math.random() < 0.25) this.audio.weapon(weaponName);
+        }
+
+        applyPlayerDamage(amount) {
+          if (!this.player || this.player.dead) return;
+          const shieldHit = Math.min(this.player.shield, amount * 0.72);
+          this.player.shield -= shieldHit;
+          this.player.armor = Math.max(0, this.player.armor - (amount - shieldHit));
+          this.hitAmount = clamp(this.hitAmount + 0.28, 0, 1);
+          this.flash(0.05);
+          if (this.profile.settings.shake) this.shake = Math.max(this.shake, 0.24);
+          if (this.player.armor <= 0) {
+            this.player.dead = true;
+            this.mission.active = false;
+            document.body.classList.remove("combat-active");
+            $("crosshair").hidden = true;
+            $("combatHint").hidden = true;
+            if (this.weaponModel) this.weaponModel.visible = false;
+            if (document.pointerLockElement === $("gameCanvas")) document.exitPointerLock();
+            this.mission.objective = "Mech destruido - operacao falhou";
+            this.audio.radioLine("Piloto abatido. Extracao de emergencia.");
+            this.toast("Mech destruido. Volte ao menu tatico para reiniciar.");
+          }
+        }
+
+        playerFire() {
+          if (!window.THREE || !this.player || !this.mission.active || this.player.dead) return;
+          const weaponName = this.profile.selectedPrimary;
+          const weapon = WEAPONS[weaponName] || WEAPONS.Autocannon;
+          if (this.player.weaponCooldown > 0 || this.player.heat > 94) return;
+
+          this.player.weaponCooldown = weapon.cooldown * 0.58;
+          this.player.heat = clamp(this.player.heat + weapon.heat * 0.62, 0, 100);
+          const origin = this.camera.position.clone();
+          const direction = new THREE.Vector3();
+          this.camera.getWorldDirection(direction);
+          const muzzle = origin.clone().add(direction.clone().multiplyScalar(0.8));
+          muzzle.y -= 0.16;
+          this.spawnMuzzle(muzzle, direction);
+          this.audio.weapon(weaponName);
+          if (this.profile.settings.shake) this.shake = Math.max(this.shake, weaponName === "Railgun" ? 0.14 : 0.06);
+          if (this.weaponModel) {
+            this.weaponModel.position.z = -0.62;
+            setTimeout(() => {
+              if (this.weaponModel) this.weaponModel.position.z = -0.72;
+            }, 45);
+          }
+
+          this.raycaster.set(this.camera.position, direction);
+          this.raycaster.far = weapon.range * 3.1;
+          const meshes = [];
+          this.units.forEach((unit) => {
+            if (unit.team === "enemy" && unit.alive) meshes.push(unit.mesh);
+          });
+          const hits = this.raycaster.intersectObjects(meshes, true);
+          if (!hits.length) {
+            const miss = origin.clone().add(direction.multiplyScalar(weapon.range * 2.4));
+            this.spawnSparks(miss, 2, 0x63d1b6);
+            return;
+          }
+
+          const unit = hits[0].object.userData.unit;
+          if (!unit || !unit.alive) return;
+          const critical = hits[0].point.y > unit.mesh.position.y + 2.3;
+          const damage = weapon.damage * 1.35 * (critical ? 1.75 : 1.0);
+          unit.receiveDamage(damage);
+          this.profile.stats.damage += Math.round(damage);
+          this.spawnSparks(hits[0].point, critical ? 18 : 10, critical ? 0xfff0b8 : 0x9cf2d3);
+          if (critical) this.toast("Acerto critico");
+        }
+
+        useOrdnance() {
+          const config = ORDNANCE[this.profile.selectedOrdnance] || ORDNANCE["Rocket Pod"];
+          if (!this.player || !this.mission.active || this.player.ordnanceCooldown > 0) return;
+          this.player.ordnanceCooldown = config.cooldown;
+          this.player.heat = clamp(this.player.heat + 24, 0, 100);
+          const direction = new THREE.Vector3();
+          this.camera.getWorldDirection(direction);
+          this.raycaster.set(this.camera.position, direction);
+          this.raycaster.far = 34;
+          const targets = this.units.filter((unit) => unit.team === "enemy" && unit.alive).map((unit) => unit.mesh).concat(this.structures);
+          const hits = this.raycaster.intersectObjects(targets, true);
+          const point = hits.length ? hits[0].point : this.camera.position.clone().add(direction.multiplyScalar(22));
+          this.explosion(point, config.damage >= 100 ? "large" : "medium", config.damage, config.radius);
+          this.toast("Ordnance disparada: " + this.profile.selectedOrdnance);
+        }
+
+        explosion(position, size, damage, radius) {
+          if (!window.THREE) return;
+          const origin = position.clone();
+          this.spawnSparks(origin, size === "large" ? 48 : 30, 0xf0b257);
+          this.spawnSmoke(origin, size === "large" ? 34 : 22);
+          this.flash(size === "large" ? 0.24 : 0.16);
+          this.shake = Math.max(this.shake, size === "large" ? 0.45 : 0.24);
+          this.audio.explosion(size);
+          if (damage) {
+            this.units.forEach((unit) => {
+              if (!unit.alive) return;
+              const dist = unit.mesh.position.distanceTo(origin);
+              if (dist <= (radius || 3)) unit.receiveDamage(damage * (1 - dist / (radius || 3)));
+            });
+          }
+        }
+
+        spawnParticle(position, velocity, color, life, size) {
+          if (!window.THREE || this.particles.length > 650) return;
+          const mesh = new THREE.Mesh(
+            new THREE.SphereGeometry(size || 0.08, 6, 6),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 })
+          );
+          mesh.position.copy(position);
+          this.worldGroup.add(mesh);
+          this.particles.push({ mesh, velocity, life, age: 0 });
+        }
+
+        spawnSparks(position, count, color) {
+          if (!window.THREE) return;
+          for (let i = 0; i < count; i += 1) {
+            this.spawnParticle(
+              position.clone(),
+              new THREE.Vector3((Math.random() * 2 - 1) * 3, Math.random() * 3, (Math.random() * 2 - 1) * 3),
+              color,
+              0.35 + Math.random() * 0.55,
+              0.045 + Math.random() * 0.05
+            );
+          }
+        }
+
+        spawnSmoke(position, count) {
+          if (!window.THREE) return;
+          for (let i = 0; i < count; i += 1) {
+            this.spawnParticle(
+              position.clone(),
+              new THREE.Vector3((Math.random() * 2 - 1) * 0.45, 0.25 + Math.random() * 0.9, (Math.random() * 2 - 1) * 0.45),
+              0x879195,
+              1.2 + Math.random() * 2.0,
+              0.12 + Math.random() * 0.18
+            );
+          }
+        }
+
+        spawnMuzzle(position, direction) {
+          if (!window.THREE) return;
+          for (let i = 0; i < 8; i += 1) {
+            const velocity = direction.clone().multiplyScalar(2 + Math.random() * 3);
+            velocity.x += Math.random() - 0.5;
+            velocity.y += Math.random() * 0.6;
+            velocity.z += Math.random() - 0.5;
+            this.spawnParticle(position.clone(), velocity, i % 2 ? 0xfff0b8 : 0xf0b257, 0.15 + Math.random() * 0.22, 0.05);
+          }
+        }
+
+        updateParticles(delta) {
+          for (let i = this.particles.length - 1; i >= 0; i -= 1) {
+            const particle = this.particles[i];
+            particle.age += delta;
+            particle.velocity.y -= 1.7 * delta;
+            particle.mesh.position.addScaledVector(particle.velocity, delta);
+            particle.mesh.material.opacity = Math.max(0, 1 - particle.age / particle.life);
+            if (particle.age >= particle.life) {
+              this.worldGroup.remove(particle.mesh);
+              particle.mesh.geometry.dispose();
+              particle.mesh.material.dispose();
+              this.particles.splice(i, 1);
+            }
+          }
+        }
+
+        clearParticles() {
+          this.particles.forEach((particle) => {
+            if (particle.mesh.parent) particle.mesh.parent.remove(particle.mesh);
+          });
+          this.particles = [];
+        }
+
+        flash(amount) {
+          this.flashAmount = clamp(this.flashAmount + amount, 0, 1);
+        }
+
+        updateFlash(delta) {
+          this.flashAmount = Math.max(0, this.flashAmount - delta * 2.8);
+          $("flash").style.opacity = this.flashAmount;
+        }
+
+        updateHit(delta) {
+          this.hitAmount = Math.max(0, this.hitAmount - delta * 1.9);
+          $("hitVignette").style.opacity = this.hitAmount;
+        }
+
+        renderAll() {
+          this.renderMenu();
+          this.renderHangar();
+          this.renderProfile();
+          this.renderSkirmish();
+          this.applyHudScale();
+        }
+
+        renderMenu() {
+          this.profile.rank = rankFor(this.profile.level);
+          $("callsignMini").textContent = this.profile.callsign;
+          $("rankMini").textContent = this.profile.rank;
+          $("menuCallsign").textContent = this.profile.callsign;
+          $("menuFaction").textContent = this.profile.faction;
+          $("menuMech").textContent = this.profile.selectedMech;
+          $("menuMap").textContent = MAPS[this.profile.selectedMap].name;
+          $("menuDifficulty").textContent = this.profile.difficulty;
+          $("xpText").textContent = `${this.profile.xp} / ${this.profile.xpToNext}`;
+          $("xpBar").style.width = `${clamp(this.profile.xp / this.profile.xpToNext * 100, 0, 100)}%`;
+          document.querySelectorAll("[data-faction]").forEach((button) => {
+            button.classList.toggle("selected", button.dataset.faction === this.profile.faction);
+          });
+        }
+
+        renderHangar() {
+          $("mechList").innerHTML = Object.values(MECHS).map((mech) => `
+            <button class="choice ${this.selectedHangarMech === mech.id ? "selected" : ""}" data-mech="${mech.id}">
+              <strong>${mech.id}</strong><small>${mech.role}</small>
+            </button>
+          `).join("");
+          const mech = MECHS[this.selectedHangarMech];
+          $("mechRole").textContent = mech.role;
+          $("mechName").textContent = mech.id;
+          $("primaryName").textContent = this.profile.selectedPrimary;
+          $("ordnanceName").textContent = this.profile.selectedOrdnance;
+          $("mechDescription").textContent = mech.desc;
+          $("weaponList").innerHTML = Object.keys(WEAPONS).map((name) => `<button class="chip ${this.profile.selectedPrimary === name ? "selected" : ""}" data-weapon="${name}">${name}</button>`).join("");
+          $("ordnanceList").innerHTML = Object.keys(ORDNANCE).map((name) => `<button class="chip ${this.profile.selectedOrdnance === name ? "selected" : ""}" data-ordnance="${name}">${name}</button>`).join("");
+          const labels = { armor: "Blindagem", shield: "Escudo", mobility: "Mobilidade", heat: "Calor", firepower: "Poder" };
+          $("mechBars").innerHTML = Object.keys(mech.stats).map((key) => `
+            <div class="bar-row"><span class="muted">${labels[key]}</span><div class="bar-track"><div class="bar-fill" style="width:${mech.stats[key]}%"></div></div><strong>${mech.stats[key]}</strong></div>
+          `).join("");
+        }
+
+        renderProfile() {
+          $("callsignInput").value = this.profile.callsign;
+          $("profileRank").textContent = this.profile.rank;
+          $("profileLevel").textContent = "Nivel " + this.profile.level;
+          $("profileXpText").textContent = `${this.profile.xp} / ${this.profile.xpToNext} XP`;
+          $("profileXpBar").style.width = `${clamp(this.profile.xp / this.profile.xpToNext * 100, 0, 100)}%`;
+          const stats = [
+            ["Partidas", this.profile.stats.matches],
+            ["Vitorias", this.profile.stats.wins],
+            ["Baixas", this.profile.stats.kills],
+            ["Dano", this.profile.stats.damage],
+            ["Minutos", Math.round(this.profile.stats.timePlayed / 60)]
+          ];
+          $("profileStats").innerHTML = stats.map(([label, value]) => `<div class="stat-card"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("");
+          $("achievementList").innerHTML = this.profile.achievements.map((item) => `
+            <div class="achievement ${item.unlocked ? "unlocked" : ""}"><strong>${item.name}</strong><small class="muted">${item.desc}</small></div>
+          `).join("");
+        }
+
+        renderSkirmish() {
+          $("mapSelect").value = this.profile.selectedMap;
+          $("difficultySelect").value = this.profile.difficulty;
+          const map = MAPS[this.profile.selectedMap];
+          $("skirmishMapName").textContent = map.name;
+          $("skirmishBriefing").textContent = map.briefing;
+          document.querySelectorAll("[data-map]").forEach((button) => {
+            button.classList.toggle("selected", button.dataset.map === this.profile.selectedMap);
+          });
+        }
+
+        updateHud() {
+          $("hudMode").textContent = this.mission.mode;
+          $("hudObjective").textContent = this.mission.objective;
+          $("hudTimer").textContent = this.formatTime(this.mission.seconds);
+          $("armorBar").style.width = `${this.mission.armor}%`;
+          $("shieldBar").style.width = `${this.mission.shield}%`;
+          $("heatBar").style.width = `${this.mission.heat}%`;
+          $("armorText").textContent = `${Math.round(this.mission.armor)}%`;
+          $("shieldText").textContent = `${Math.round(this.mission.shield)}%`;
+          $("heatText").textContent = `${Math.round(this.mission.heat)}%`;
+          $("hudMech").textContent = this.profile.selectedMech;
+          $("hudWeapon").textContent = this.profile.selectedPrimary;
+          const ordnanceReady = !this.player || this.player.ordnanceCooldown <= 0 ? "F" : Math.ceil(this.player.ordnanceCooldown) + "s";
+          $("hudOrdnance").textContent = `${this.profile.selectedOrdnance} (${ordnanceReady})`;
+          const enemy = this.units.filter((unit) => unit.team === "enemy" && unit.alive).length;
+          const boost = this.player ? Math.round(this.player.boost) : 100;
+          $("squadFeed").textContent = `Baixas ${this.mission.kills}/${this.mission.targetKills || 0} | Inimigos ${enemy} | Boost ${boost}%`;
+        }
+
+        applyHudScale() {
+          document.documentElement.style.setProperty("--hud-scale", this.profile.settings.hudScale / 100);
+        }
+
+        formatTime(seconds) {
+          const min = Math.floor(seconds / 60).toString().padStart(2, "0");
+          const sec = Math.floor(seconds % 60).toString().padStart(2, "0");
+          return `${min}:${sec}`;
+        }
+
+        toast(message) {
+          const toast = document.createElement("div");
+          toast.className = "toast";
+          toast.textContent = message;
+          $("toastStack").appendChild(toast);
+          setTimeout(() => toast.remove(), 3200);
+        }
+
+        resize() {
+          if (!this.renderer || !this.camera) return;
+          this.camera.aspect = window.innerWidth / window.innerHeight;
+          this.camera.updateProjectionMatrix();
+          this.renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        pointer(event) {
+          if (!this.activeMech || this.mission.active) return;
+          this.activeMech.rotation.y = (event.clientX / window.innerWidth - 0.5) * 0.32;
+          this.activeMech.rotation.x = (event.clientY / window.innerHeight - 0.5) * 0.1;
+        }
+
+        animate() {
+          requestAnimationFrame(() => this.animate());
+          const delta = this.clock ? this.clock.getDelta() : 0.016;
+          this.updateMission(delta);
+          this.updateParticles(delta);
+          this.updateFlash(delta);
+          this.updateHit(delta);
+          this.audio.setIntensity(this.mission.active ? clamp((this.mission.heat + 20) / 500, 0.04, 0.22) : 0.0);
+          if (this.activeMech && !this.mission.active) {
+            this.activeMech.position.y = Math.sin(performance.now() * 0.0015) * 0.035;
+            this.activeMech.rotation.y += 0.001;
+          }
+          if (this.camera && this.profile.settings.shake) {
+            this.shake = Math.max(0, this.shake - delta * 1.8);
+            const amount = this.shake * this.shake;
+            if (this.mission.active && this.player) {
+              this.camera.position.x += Math.sin(performance.now() * 0.04) * amount;
+              this.camera.position.y += Math.cos(performance.now() * 0.037) * amount * 0.6;
+            } else {
+              this.camera.position.x = 5 + Math.sin(performance.now() * 0.04) * amount;
+              this.camera.position.y = 3.8 + Math.cos(performance.now() * 0.037) * amount * 0.6;
+            }
+          }
+          if (this.renderer && this.scene && this.camera) this.renderer.render(this.scene, this.camera);
+        }
+
+        showMech(mechId) {
+          if (!window.THREE || !this.worldGroup) return;
+          if (this.activeMech) this.worldGroup.remove(this.activeMech);
+          this.activeMech = this.createMech(mechId, 1.05);
+          this.activeMech.position.set(0, 0, 0);
+          this.worldGroup.add(this.activeMech);
+        }
+
+        mat(color, roughness = 0.66) {
+          return new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.42 });
+        }
+
+        box(w, h, d, color) {
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), this.mat(color));
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          return mesh;
+        }
+
+        cyl(rt, rb, h, color) {
+          const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, 10), this.mat(color));
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          return mesh;
+        }
+
+        createMech(mechId, scale) {
+          const mech = MECHS[mechId] || MECHS.VANGUARD;
+          const group = new THREE.Group();
+          group.scale.setScalar(scale || 1);
+          const body = this.mat(mech.color);
+          const accent = this.mat(mech.accent, 0.5);
+          const dark = this.mat(0x11181d, 0.8);
+          const glass = new THREE.MeshStandardMaterial({ color: 0x9cf2d3, emissive: 0x1d4f46, emissiveIntensity: 0.55, roughness: 0.28, metalness: 0.12 });
+          const add = (mesh, x, y, z, rz = 0) => {
+            mesh.position.set(x, y, z);
+            mesh.rotation.z = rz;
+            group.add(mesh);
+            return mesh;
+          };
+          add(new THREE.Mesh(new THREE.BoxGeometry(1.45, 1.35, 0.78), body), 0, 2.55, 0);
+          add(new THREE.Mesh(new THREE.BoxGeometry(1.06, 0.52, 0.88), accent), 0, 2.78, 0.1);
+          add(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.28, 0.2), glass), 0, 3.08, 0.5);
+          add(new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.34, 0.48), dark), 0, 3.55, 0);
+          [-1, 1].forEach((side) => {
+            add(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.34, 0.7), body), side * 1.04, 2.95, 0);
+            add(new THREE.Mesh(new THREE.BoxGeometry(0.32, 1.0, 0.34), dark), side * 1.18, 2.28, 0, side * -0.12);
+            add(new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.15, 0.45), body), side * 0.43, 0.98, 0);
+            add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.22, 0.52), accent), side * 0.43, 1.22, 0);
+            add(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.22, 0.86), dark), side * 0.43, 0.26, 0.12);
+          });
+          const weapon = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 1.25, 10), accent);
+          weapon.position.set(1.42, 2.22, 0.16);
+          weapon.rotation.x = Math.PI / 2;
+          group.add(weapon);
+          add(new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.42, 0.55), dark), 0, 1.72, 0);
+          if (mechId === "BEHEMOTH" || mechId === "TITAN-X") group.scale.multiplyScalar(1.16);
+          if (mechId === "PHANTOM") group.scale.multiplyScalar(0.92);
+          return group;
+        }
+
+        createStructure(type, accent) {
+          const group = new THREE.Group();
+          const add = (mesh, x, y, z, ry = 0) => {
+            mesh.position.set(x, y, z);
+            mesh.rotation.y = ry;
+            group.add(mesh);
+          };
+          if (type === "base") {
+            add(this.box(3.4, 0.65, 2.4, 0x2f3c42), 0, 0.32, 0);
+            add(this.box(2.4, 0.75, 1.4, 0x4a5e66), 0, 1.0, -0.2);
+            add(this.box(1.0, 0.35, 0.28, accent), -0.6, 1.26, 0.55);
+            add(this.box(1.0, 0.35, 0.28, accent), 0.6, 1.26, 0.55);
+          } else if (type === "refinery") {
+            add(this.box(2.8, 0.52, 2.0, 0x313d40), 0, 0.26, 0);
+            add(this.cyl(0.42, 0.5, 2.3, 0x59666a), -0.75, 1.15, -0.2);
+            add(this.cyl(0.28, 0.34, 1.7, 0x4a575a), 0.65, 0.85, 0.32);
+            add(this.box(1.8, 0.12, 0.12, accent), 0.05, 1.52, 0.44, 0.18);
+          } else if (type === "tower") {
+            add(this.cyl(0.16, 0.26, 2.8, 0x2b353b), 0, 1.4, 0);
+            add(this.box(1.1, 0.32, 1.1, 0x46565e), 0, 2.95, 0);
+            add(this.box(1.25, 0.08, 0.16, accent), 0, 3.2, 0);
+          } else if (type === "bridge") {
+            add(this.box(4.8, 0.28, 1.25, 0x303b40), 0, 0.42, 0);
+            add(this.box(4.8, 0.16, 0.16, accent), 0, 0.72, -0.72);
+            add(this.box(4.8, 0.16, 0.16, accent), 0, 0.72, 0.72);
+          } else {
+            add(this.box(2.8, 0.62, 1.8, 0x263039), 0, 0.31, 0);
+            add(this.box(2.2, 0.36, 1.5, 0x3c4b52), 0, 0.82, 0);
+            add(this.box(1.5, 0.16, 0.12, accent), 0, 0.74, 0.94);
+          }
+          return group;
+        }
+
+        createProp(type, accent) {
+          const group = new THREE.Group();
+          if (type === "tree") {
+            const trunk = this.cyl(0.12, 0.18, 1.1, 0x4b3325);
+            trunk.position.y = 0.55;
+            const top = this.cyl(0.08, 0.72, 1.4, 0x2f7a42);
+            top.position.y = 1.55;
+            group.add(trunk, top);
+          } else if (type === "antenna") {
+            const mast = this.cyl(0.035, 0.06, 2.4, accent);
+            mast.position.y = 1.2;
+            const dish = this.box(0.9, 0.18, 0.5, 0x1b252b);
+            dish.position.set(0.34, 1.95, 0);
+            group.add(mast, dish);
+          } else if (type === "ruin") {
+            const a = this.box(1.2, 1.5, 0.16, 0x3c444d);
+            a.position.y = 0.75;
+            const b = this.box(0.16, 1.1, 1.0, 0x303941);
+            b.position.set(0.52, 0.55, 0.42);
+            group.add(a, b);
+          } else if (type === "ice") {
+            const ice = this.cyl(0.08, 0.36, 1.25, 0xb9e8f0);
+            ice.position.y = 0.62;
+            group.add(ice);
+          } else if (type === "debris") {
+            for (let i = 0; i < 4; i += 1) {
+              const piece = this.box(0.52, 0.18, 0.32, 0x48545b);
+              piece.position.set(i * 0.34 - 0.5, 0.12, (i % 2) * 0.34 - 0.18);
+              piece.rotation.y = i * 0.7;
+              group.add(piece);
+            }
+          } else {
+            const rock = this.box(type === "crate" ? 0.82 : 0.9, type === "crate" ? 0.62 : 0.55, type === "crate" ? 0.82 : 0.72, type === "crate" ? 0x31424a : 0x59605a);
+            rock.position.y = 0.3;
+            group.add(rock);
+          }
+          return group;
+        }
+      }
+
+      window.addEventListener("DOMContentLoaded", () => {
+        window.IRONCLAD_FINAL = new Ironclad();
+        window.IRONCLAD_FINAL.init();
+      });
+    })();
+  </script>
+</body>
+</html>
