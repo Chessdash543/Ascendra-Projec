@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brotato Clone - Sobrevivência Infinita</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+    overflow:hidden;
+    background:#111;
+    font-family:Arial,sans-serif;
+    color:white;
+}
+canvas{
+    display:block;
+    background:#181818;
+}
+#menu,#upgradeMenu,#gameOver{
+    position:absolute;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    background:rgba(0,0,0,.85);
+    z-index:10;
+}
+.hidden{display:none!important;}
+button{
+    padding:15px 30px;
+    font-size:20px;
+    cursor:pointer;
+    margin:10px;
+    border:none;
+    border-radius:10px;
+}
+h1{margin-bottom:20px;}
+.choice{
+    width:350px;
+    margin:8px;
+}
+#ui{
+    position:absolute;
+    top:10px;
+    left:10px;
+    z-index:5;
+    font-size:18px;
+}
+</style>
+</head>
+<body>
+
+
+<div id="ui"></div>
+
+
+<div id="menu">
+    <h1>BROTATO SURVIVAL</h1>
+    <p>WASD para mover</p>
+    <p>O tiro é automático</p>
+    <br>
+    <button id="startBtn">JOGAR</button>
+</div>
+
+
+<div id="upgradeMenu" class="hidden">
+    <h1>ESCOLHA UM UPGRADE</h1>
+    <div id="choices"></div>
+</div>
+
+
+<div id="gameOver" class="hidden">
+    <h1>GAME OVER</h1>
+    <h2 id="finalScore"></h2>
+    <h3 id="bestScore"></h3>
+    <button onclick="location.reload()">JOGAR NOVAMENTE</button>
+</div>
+
+
+<canvas id="game"></canvas>
+
+
+<script>
+
+
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+
+function resize(){
+ canvas.width=window.innerWidth;
+ canvas.height=window.innerHeight;
+}
+resize();
+window.addEventListener("resize",resize);
+
+
+let gameStarted=false;
+let paused=false;
+
+
+const ui=document.getElementById("ui");
+
+
+const player={
+ x:0,
+ y:0,
+ r:20,
+ speed:4,
+ maxHp:100,
+ hp:100,
+ damage:15,
+ fireRate:400,
+ bulletSpeed:8,
+ xp:0,
+ level:1,
+ xpNeeded:30,
+ regen:0,
+ bullets:1
+};
+
+
+function resetPlayer(){
+ player.x=canvas.width/2;
+ player.y=canvas.height/2;
+}
+
+
+resetPlayer();
+
+
+let enemies=[];
+let bullets=[];
+let particles=[];
+let score=0;
+let bossAlive=false;
+
+
+const keys={};
+
+
+addEventListener("keydown",e=>{
+ keys[e.key.toLowerCase()]=true;
+});
+addEventListener("keyup",e=>{
+ keys[e.key.toLowerCase()]=false;
+});
+
+
+document.getElementById("startBtn").onclick=()=>{
+ gameStarted=true;
+ document.getElementById("menu").classList.add("hidden");
+};
+
+
+class Enemy{
+ constructor(x,y,boss=false){
+  this.x=x;
+  this.y=y;
+  this.boss=boss;
+  this.r=boss?50:15;
+  this.maxHp=boss?1000:30+score*0.2;
+  this.hp=this.maxHp;
+  this.speed=boss?1.3:1+Math.random()*1.5;
+  this.damage=boss?25:10;
+ }
+ update(){
+  const dx=player.x-this.x;
+  const dy=player.y-this.y;
+  const d=Math.hypot(dx,dy);
+  this.x+=dx/d*this.speed;
+  this.y+=dy/d*this.speed;
+
+
+  if(d<player.r+this.r){
+    player.hp-=this.damage*0.02;
+  }
+ }
+ draw(){
+  ctx.fillStyle=this.boss?"purple":"crimson";
+  ctx.beginPath();
+  ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
+  ctx.fill();
+
+
+  ctx.fillStyle="red";
+  ctx.fillRect(this.x-this.r,this.y-this.r-12,this.r*2,5);
+
+
+  ctx.fillStyle="lime";
+  ctx.fillRect(
+    this.x-this.r,
+    this.y-this.r-12,
+    (this.hp/this.maxHp)*(this.r*2),
+    5
+  );
+ }
+}
+
+
+class Bullet{
+ constructor(x,y,vx,vy){
+  this.x=x;
+  this.y=y;
+  this.vx=vx;
+  this.vy=vy;
+  this.r=5;
+ }
+ update(){
+  this.x+=this.vx;
+  this.y+=this.vy;
+ }
+ draw(){
+  ctx.fillStyle="gold";
+  ctx.beginPath();
+  ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
+  ctx.fill();
+ }
+}
+
+
+class Particle{
+ constructor(x,y,color){
+  this.x=x;
+  this.y=y;
+  this.vx=(Math.random()-0.5)*6;
+  this.vy=(Math.random()-0.5)*6;
+  this.life=40;
+  this.color=color;
+ }
+ update(){
+  this.x+=this.vx;
+  this.y+=this.vy;
+  this.life--;
+ }
+ draw(){
+  ctx.globalAlpha=this.life/40;
+  ctx.fillStyle=this.color;
+  ctx.fillRect(this.x,this.y,4,4);
+  ctx.globalAlpha=1;
+ }
+}
+
+
+function spawnEnemy(){
+ let side=Math.floor(Math.random()*4);
+ let x,y;
+
+
+ if(side===0){
+  x=Math.random()*canvas.width;
+  y=-40;
+ }
+ else if(side===1){
+  x=canvas.width+40;
+  y=Math.random()*canvas.height;
+ }
+ else if(side===2){
+  x=Math.random()*canvas.width;
+  y=canvas.height+40;
+ }
+ else{
+  x=-40;
+  y=Math.random()*canvas.height;
+ }
+
+
+ enemies.push(new Enemy(x,y));
+}
+
+
+function spawnBoss(){
+ bossAlive=true;
+ enemies.push(
+  new Enemy(
+   Math.random()*canvas.width,
+   -100,
+   true
+  )
+ );
+}
+
+
+setInterval(()=>{
+ if(!gameStarted||paused) return;
+
+
+ let amount=1+Math.floor(player.level/5);
+
+
+ for(let i=0;i<amount;i++){
+  spawnEnemy();
+ }
+
+
+ if(player.level%10===0 && !bossAlive){
+  spawnBoss();
+ }
+
+
+},1000);
+
+
+function nearestEnemy(){
+ let target=null;
+ let dist=Infinity;
+
+
+ enemies.forEach(e=>{
+  let d=Math.hypot(e.x-player.x,e.y-player.y);
+  if(d<dist){
+   dist=d;
+   target=e;
+  }
+ });
+
+
+ return target;
+}
+
+
+setInterval(()=>{
+
+
+ if(!gameStarted||paused) return;
+
+
+ const target=nearestEnemy();
+ if(!target) return;
+
+
+ for(let i=0;i<player.bullets;i++){
+
+
+  let spread=(i-(player.bullets-1)/2)*0.15;
+
+
+  let angle=Math.atan2(
+   target.y-player.y,
+   target.x-player.x
+  )+spread;
+
+
+  bullets.push(
+   new Bullet(
+    player.x,
+    player.y,
+    Math.cos(angle)*player.bulletSpeed,
+    Math.sin(angle)*player.bulletSpeed
+   )
+  );
+ }
+
+
+},player.fireRate);
+
+
+const upgrades=[
+ {
+  name:"+20 Vida Máxima",
+  apply(){
+   player.maxHp+=20;
+   player.hp+=20;
+  }
+ },
+ {
+  name:"+5 Dano",
+  apply(){
+   player.damage+=5;
+  }
+ },
+ {
+  name:"+10% Velocidade",
+  apply(){
+   player.speed+=0.5;
+  }
+ },
+ {
+  name:"+1 Projétil",
+  apply(){
+   player.bullets++;
+  }
+ },
+ {
+  name:"+20% Velocidade de Tiro",
+  apply(){
+   player.fireRate=Math.max(
+    100,
+    player.fireRate*0.8
+   );
+  }
+ },
+ {
+  name:"+0.5 Regeneração",
+  apply(){
+   player.regen+=0.5;
+  }
+ }
+];
+
+
+function levelUp(){
+
+
+ paused=true;
+
+
+ player.level++;
+ player.xp=0;
+ player.xpNeeded=Math.floor(player.xpNeeded*1.35);
+
+
+ const menu=document.getElementById("upgradeMenu");
+ const choices=document.getElementById("choices");
+
+
+ choices.innerHTML="";
+ menu.classList.remove("hidden");
+
+
+ let selected=[];
+
+
+ while(selected.length<3){
+  let u=upgrades[Math.floor(Math.random()*upgrades.length)];
+  if(!selected.includes(u)) selected.push(u);
+ }
+
+
+ selected.forEach(up=>{
+  const btn=document.createElement("button");
+  btn.className="choice";
+  btn.textContent=up.name;
+
+
+  btn.onclick=()=>{
+   up.apply();
+   menu.classList.add("hidden");
+   paused=false;
+  };
+
+
+  choices.appendChild(btn);
+ });
+}
+
+
+function gameOver(){
+
+
+ gameStarted=false;
+
+
+ let best=
+ parseInt(localStorage.getItem("brotato_best")||0);
+
+
+ if(score>best){
+  best=score;
+  localStorage.setItem("brotato_best",best);
+ }
+
+
+ document.getElementById("finalScore").textContent=
+ "Pontuação: "+score;
+
+
+ document.getElementById("bestScore").textContent=
+ "Recorde: "+best;
+
+
+ document.getElementById("gameOver")
+ .classList.remove("hidden");
+}
+
+
+function update(){
+
+
+ if(keys["w"]) player.y-=player.speed;
+ if(keys["s"]) player.y+=player.speed;
+ if(keys["a"]) player.x-=player.speed;
+ if(keys["d"]) player.x+=player.speed;
+
+
+ player.x=Math.max(0,Math.min(canvas.width,player.x));
+ player.y=Math.max(0,Math.min(canvas.height,player.y));
+
+
+ player.hp=Math.min(
+  player.maxHp,
+  player.hp+player.regen*0.01
+ );
+
+
+ bullets.forEach((b,bi)=>{
+
+
+  b.update();
+
+
+  enemies.forEach((e,ei)=>{
+
+
+   let d=Math.hypot(b.x-e.x,b.y-e.y);
+
+
+   if(d<b.r+e.r){
+
+
+    e.hp-=player.damage;
+
+
+    bullets.splice(bi,1);
+
+
+    for(let i=0;i<10;i++){
+     particles.push(
+      new Particle(e.x,e.y,"orange")
+     );
+    }
+
+
+    if(e.hp<=0){
+
+
+      if(e.boss) bossAlive=false;
+
+
+      score+=e.boss?50:1;
+      player.xp+=e.boss?50:8;
+
+
+      enemies.splice(ei,1);
+
+
+      for(let i=0;i<25;i++){
+       particles.push(
+        new Particle(e.x,e.y,"yellow")
+       );
+      }
+    }
+   }
+  });
+
+
+ });
+
+
+ enemies.forEach(e=>e.update());
+
+
+ particles.forEach((p,i)=>{
+  p.update();
+  if(p.life<=0) particles.splice(i,1);
+ });
+
+
+ if(player.xp>=player.xpNeeded){
+  levelUp();
+ }
+
+
+ if(player.hp<=0){
+  gameOver();
+ }
+}
+
+
+function draw(){
+
+
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+
+
+ ctx.fillStyle="#2a9df4";
+ ctx.beginPath();
+ ctx.arc(player.x,player.y,player.r,0,Math.PI*2);
+ ctx.fill();
+
+
+ bullets.forEach(b=>b.draw());
+ enemies.forEach(e=>e.draw());
+ particles.forEach(p=>p.draw());
+
+
+ ui.innerHTML=`
+ ❤️ Vida: ${Math.floor(player.hp)}/${player.maxHp}<br>
+ ⭐ Nível: ${player.level}<br>
+ XP: ${player.xp}/${player.xpNeeded}<br>
+ 💀 Pontos: ${score}
+ `;
+}
+
+
+function loop(){
+
+
+ requestAnimationFrame(loop);
+
+
+ if(!gameStarted||paused) return;
+
+
+ update();
+ draw();
+}
+
+
+loop();
+
+
+</script>
+</body>
+</html>
