@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Tung Tung Sahur: O Pesadelo da Madrugada</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Courier New', Courier, monospace; }
+        #gameCanvas { width: 100vw; height: 100vh; display: block; }
+        #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            width: 20px; height: 20px;
+            background: transparent;
+            border: 2px solid white; border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+        #crosshair::after {
+            content: ''; position: absolute; top: 50%; left: 50%;
+            width: 4px; height: 4px; background: red; border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        #stats { position: absolute; top: 20px; left: 20px; color: white; font-size: 20px; text-shadow: 2px 2px 0 #000; }
+        #bossStats { position: absolute; top: 20px; right: 20px; color: red; font-size: 24px; text-shadow: 2px 2px 0 #000; text-align: right; }
+        
+        #bossHealthBarContainer { width: 350px; height: 25px; background: #333; border: 2px solid #000; margin-top: 5px; }
+        #bossHealthBar { width: 100%; height: 100%; background: #ff0055; transition: width 0.05s; }
+
+        #playerHealthBarContainer { width: 200px; height: 20px; background: #333; border: 2px solid #000; margin-top: 5px; }
+        #playerHealthBar { width: 100%; height: 100%; background: #00ff00; transition: width 0.1s; }
+
+        #blocker {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.85);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: white; pointer-events: auto; z-index: 10;
+        }
+        #instructions { text-align: center; font-size: 18px; max-width: 700px; }
+        .btn { padding: 15px 30px; font-size: 20px; background: #ff0055; color: white; border: none; cursor: pointer; margin-top: 20px; font-weight: bold; text-transform: uppercase; }
+        .btn:hover { background: #ff0000; }
+
+        #damageOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 0, 0, 0.5); opacity: 0; pointer-events: none; transition: opacity 0.1s;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+</head>
+<body>
+
+    <div id="ui">
+        <div id="crosshair"></div>
+        <div id="stats">
+            <div>JOGADOR: <span id="playerHpText">100</span> HP</div>
+            <div id="playerHealthBarContainer"><div id="playerHealthBar"></div></div>
+        </div>
+        <div id="bossStats">
+            <div>TUNG TUNG SAHUR [MODO DEUS]</div>
+            <div id="bossHealthBarContainer"><div id="bossHealthBar"></div></div>
+        </div>
+        <div id="damageOverlay"></div>
+    </div>
+
+    <div id="blocker">
+        <div id="instructions">
+            <h1 style="color: #ff0055; font-size: 40px; margin-bottom: 10px;">TUNG TUNG SAHUR: MODO INFERNAL</h1>
+            <p>Você o irritou além do limite. Agora o barulho vai quebrar o tecido da realidade!</p>
+            <p><b>Controles:</b><br>
+            W, A, S, D = Mover | Mouse = Olhar 360°<br>
+            Clique Esquerdo = Atirar | Barra de Espaço = Pular (Essencial!)</p>
+            <p style="color: #ffaa00; font-weight: bold;">Novos Ataques do Boss:<br>
+            1. Investida Sônica | 2. Tiro Triplo | 3. Ondas de Choque (Pule!)<br>
+            4. Bullet Hell Total (360°) | 5. Teletransporte Esmagador (Saia de baixo!)</p>
+            <button class="btn" id="startButton">INICIAR O COMBATE</button>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURAÇÃO BÁSICA DO THREE.JS ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x05050a);
+        scene.fog = new THREE.Fog(0x05050a, 10, 160);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // --- ILUMINAÇÃO ---
+        const ambientLight = new THREE.AmbientLight(0x111122, 1.5);
+        scene.add(ambientLight);
+        const pointLight = new THREE.PointLight(0x00ffff, 2, 120);
+        scene.add(pointLight);
+        const bossLight = new THREE.PointLight(0xff0000, 3, 50);
+        scene.add(bossLight);
+
+        // --- CONTROLES (FPS) ---
+        const controls = new THREE.PointerLockControls(camera, document.body);
+        const blocker = document.getElementById('blocker');
+        const startButton = document.getElementById('startButton');
+
+        startButton.addEventListener('click', () => { controls.lock(); });
+        controls.addEventListener('lock', () => { blocker.style.display = 'none'; });
+        controls.addEventListener('unlock', () => { blocker.style.display = 'flex'; });
+        scene.add(controls.getObject());
+
+        // --- VARIÁVEIS DE ESTADO ---
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let prevTime = performance.now();
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        
+        let playerHealth = 100;
+        const maxBossHealth = 10000; // HP Massivamente aumentado (De 3000 para 10000)
+        let bossHealth = maxBossHealth;
+        let gameOver = false;
+
+        // Entidades
+        let boss;
+        let minions = [];
+        let projectiles = [];
+        let shockwaves = [];
+        let lasers = [];
+
+        // --- AMBIENTE (ARENA REDESENHADA) ---
+        const floorGeometry = new THREE.PlaneGeometry(240, 240);
+        const floorMaterial = new THREE.MeshPhongMaterial({ color: 0x15151c, shininess: 10 });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        const gridHelper = new THREE.GridHelper(240, 60, 0xff0055, 0x333344);
+        gridHelper.position.y = 0.05;
+        scene.add(gridHelper);
+
+        // Paredes Limítrofes
+        const wallMat = new THREE.MeshBasicMaterial({ color: 0x330011, wireframe: true });
+        const wallGeo = new THREE.BoxGeometry(240, 60, 2);
+        const w1 = new THREE.Mesh(wallGeo, wallMat); w1.position.set(0, 30, -120); scene.add(w1);
+        const w2 = new THREE.Mesh(wallGeo, wallMat); w2.position.set(0, 30, 120); scene.add(w2);
+        const w3 = new THREE.Mesh(wallGeo, wallMat); w3.rotation.y = Math.PI/2; w3.position.set(-120, 30, 0); scene.add(w3);
+        const w4 = new THREE.Mesh(wallGeo, wallMat); w4.rotation.y = Math.PI/2; w4.position.set(120, 30, 0); scene.add(w4);
+
+        // --- O BOSS: TUNG TUNG SAHUR ---
+        const bossGeo = new THREE.CylinderGeometry(5, 5, 15, 24);
+        const bossMat = new THREE.MeshPhongMaterial({ color: 0xff0044, emissive: 0x330000, shininess: 50 });
+        boss = new THREE.Mesh(bossGeo, bossMat);
+        boss.position.set(0, 7.5, -40);
+        scene.add(boss);
+
+        let bossState = 'idle';
+        let bossTimer = 1;
+        let bossTargetPos = new THREE.Vector3();
+
+        function updateBoss(delta) {
+            if(gameOver) return;
+            bossTimer -= delta;
+
+            const playerPos = controls.getObject().position;
+            // O Boss sempre encara o jogador horizontalmente
+            boss.lookAt(playerPos.x, boss.position.y, playerPos.z);
+            bossLight.position.copy(boss.position);
+
+            if (bossTimer <= 0) {
+                // Sorteio de IA entre os 5 ataques disponíveis
+                const rand = Math.random();
+                
+                if (rand < 0.20) {
+                    // ATAQUE 1: Investida Sônica (Dash)
+                    bossState = 'dash';
+                    bossTargetPos.copy(playerPos);
+                    bossTimer = 2.0;
+                } else if (rand < 0.40) {
+                    // ATAQUE 2: Rajada de Projéteis Direcionados
+                    bossState = 'shoot';
+                    bossTimer = 2.5;
+                    shootProjectile(0);
+                    setTimeout(() => shootProjectile(0), 300);
+                    setTimeout(() => shootProjectile(0), 600);
+                } else if (rand < 0.60) {
+                    // INFESTAÇÃO: Invoca Minions Fortões
+                    bossState = 'spawn';
+                    bossTimer = 3.0;
+                    spawnHeavyMinion();
+                    spawnHeavyMinion();
+                } else if (rand < 0.75) {
+                    // NOVO ATAQUE 3: Onda de Choque de Chão (Obrigatório Pular)
+                    bossState = 'shockwave';
+                    bossTimer = 2.0;
+                    triggerShockwave();
+                } else if (rand < 0.90) {
+                    // NOVO ATAQUE 4: Tempestade Bullet Hell (Disparo 360 Graus)
+                    bossState = 'bulletHell';
+                    bossTimer = 3.5;
+                    triggerBulletHell();
+                    setTimeout(triggerBulletHell, 800);
+                } else {
+                    // NOVO ATAQUE 5: Teletransporte Esmagador (Meteor Slam)
+                    bossState = 'teleportSlam';
+                    bossTimer = 2.5;
+                    boss.position.set(playerPos.x, 60, playerPos.z); // Vai pro céu acima do player
+                }
+            }
+
+            // Execuções de movimento por estado
+            if (bossState === 'dash') {
+                boss.position.lerp(bossTargetPos, 4.5 * delta); // Mais veloz
+                boss.rotation.z += 15 * delta;
+            } else if (bossState === 'teleportSlam') {
+                if (boss.position.y > 7.5) {
+                    boss.position.y -= 120 * delta; // Queda ultra rápida
+                    if (boss.position.y <= 7.5) {
+                        boss.position.y = 7.5;
+                        // Impacto no solo
+                        triggerShockwave(); // Cria onda ao cair
+                        if (boss.position.distanceTo(playerPos) < 22) {
+                            takeDamage(35); // Dano pesado por proximidade do impacto
+                        }
+                    }
+                }
+            } else {
+                // Movimento básico flutuante nos outros estados
+                boss.position.y = 7.5 + Math.sin(performance.now() * 0.006) * 2.5;
+            }
+
+            // Dano por colisão direta com o corpo do Boss
+            if (boss.position.distanceTo(playerPos) < 9) {
+                takeDamage(25);
+            }
+        }
+
+        // --- SISTEMAS DE ATAQUE DO BOSS ---
+        
+        function shootProjectile(angleOffset = 0) {
+            const projGeo = new THREE.SphereGeometry(1.8, 12, 12);
+            const projMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+            const proj = new THREE.Mesh(projGeo, projMat);
+            proj.position.copy(boss.position);
+            
+            let dir = new THREE.Vector3().subVectors(controls.getObject().position, boss.position).normalize();
+            if(angleOffset !== 0) {
+                dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), angleOffset);
+            }
+            
+            proj.userData = { direction: dir, speed: 55, life: 3.5 };
+            scene.add(proj);
+            projectiles.push(proj);
+        }
+
+        function triggerBulletHell() {
+            const totalProjectiles = 16; // Círculo completo de tiros
+            for (let i = 0; i < totalProjectiles; i++) {
+                const angle = (i / totalProjectiles) * Math.PI * 2;
+                const projGeo = new THREE.SphereGeometry(1.5, 8, 8);
+                const projMat = new THREE.MeshBasicMaterial({ color: 0xff00ff });
+                const proj = new THREE.Mesh(projGeo, projMat);
+                proj.position.copy(boss.position);
+                proj.position.y = 6;
+                
+                const dir = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)).normalize();
+                proj.userData = { direction: dir, speed: 35, life: 4.5 };
+                scene.add(proj);
+                projectiles.push(proj);
+            }
+        }
+
+        function triggerShockwave() {
+            const waveGeo = new THREE.RingGeometry(1, 2, 32);
+            const waveMat = new THREE.MeshBasicMaterial({ color: 0xff0055, side: THREE.DoubleSide });
+            const wave = new THREE.Mesh(waveGeo, waveMat);
+            wave.rotation.x = Math.PI / 2;
+            wave.position.copy(boss.position);
+            wave.position.y = 0.4;
+            wave.userData = { radius: 2, maxRadius: 110, speed: 50 };
+            scene.add(wave);
+            shockwaves.push(wave);
+        }
+
+        // INIMIGOS ADICIONAIS: Minions Maiores e Mais Fortes (Giga-Tambores)
+        function spawnHeavyMinion() {
+            const minionGeo = new THREE.BoxGeometry(4.5, 4.5, 4.5); // Dobro do tamanho anterior
+            const minionMat = new THREE.MeshPhongMaterial({ color: 0x7700aa, emissive: 0x220033 });
+            const minion = new THREE.Mesh(minionGeo, minionMat);
+            
+            minion.position.set(
+                boss.position.x + (Math.random() - 0.5) * 30,
+                2.25,
+                boss.position.z + (Math.random() - 0.5) * 30
+            );
+            
+            // Atributos reforçados
+            minion.userData = { hp: 4, damage: 18, speed: 20 }; // Exige 4 tiros para morrer e dá muito dano
+            scene.add(minion);
+            minions.push(minion);
+        }
+
+        // --- ARMA DO JOGADOR (SISTEMA DE TIRO) ---
+        const raycaster = new THREE.Raycaster();
+        document.addEventListener('mousedown', (event) => {
+            if (!controls.isLocked || gameOver) return;
+            if (event.button === 0) shootWeapon();
+        });
+
+        function shootWeapon() {
+            const material = new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 3 });
+            const points = [];
+            points.push(new THREE.Vector3(0.4, -0.4, -1).applyMatrix4(camera.matrixWorld));
+            
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const intersects = raycaster.intersectObjects([boss, ...minions]);
+
+            let endPoint = new THREE.Vector3();
+            raycaster.ray.at(120, endPoint);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0].object;
+                endPoint = intersects[0].point;
+                
+                if (hit === boss) {
+                    bossHealth -= 65; // Dano balanceado contra o novo HP
+                    updateUI();
+                    bossMat.emissive.setHex(0xff0000);
+                    setTimeout(() => bossMat.emissive.setHex(0x330000), 80);
+                    if (bossHealth <= 0) winGame();
+                } else if (minions.includes(hit)) {
+                    hit.userData.hp -= 1;
+                    hit.material.emissive.setHex(0xff00ff);
+                    setTimeout(() => { if (hit.material) hit.material.emissive.setHex(0x220033); }, 80);
+                    
+                    if (hit.userData.hp <= 0) {
+                        scene.remove(hit);
+                        minions = minions.filter(m => m !== hit);
+                    }
+                }
+            }
+
+            points.push(endPoint);
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const line = new THREE.Line(geometry, material);
+            scene.add(line);
+            lasers.push({ mesh: line, life: 0.08 });
+        }
+
+        // --- SISTEMA DE DANO E UI ---
+        function takeDamage(amount) {
+            if(gameOver) return;
+            playerHealth -= amount;
+            
+            const overlay = document.getElementById('damageOverlay');
+            overlay.style.opacity = 1;
+            setTimeout(() => overlay.style.opacity = 0, 150);
+
+            updateUI();
+            
+            // Feedback de impacto: empurrão físico leve
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            controls.getObject().position.addScaledVector(dir, -3.5);
+
+            if (playerHealth <= 0) loseGame();
+        }
+
+        function updateUI() {
+            document.getElementById('playerHpText').innerText = Math.max(0, Math.floor(playerHealth));
+            document.getElementById('playerHealthBar').style.width = Math.max(0, (playerHealth / 100) * 100) + '%';
+            document.getElementById('bossHealthBar').style.width = Math.max(0, (bossHealth / maxBossHealth) * 100) + '%';
+        }
+
+        function winGame() {
+            gameOver = true;
+            controls.unlock();
+            document.getElementById('instructions').innerHTML = "<h1 style='color: #00ffaa; font-size: 40px;'>IMPOSSÍVEL!</h1><p>Você destruiu o Tung Tung Sahur Supremo e salvou o silêncio do mundo!</p><button class='btn' onclick='location.reload()'>Jogar Novamente</button>";
+            scene.remove(boss);
+        }
+
+        function loseGame() {
+            gameOver = true;
+            controls.unlock();
+            document.getElementById('instructions').innerHTML = "<h1 style='color: red; font-size: 40px;'>DERROTADO PELO BARULHO!</h1><p>O Tung Tung Sahur amassou seus tímpanos.</p><button class='btn' onclick='location.reload()'>Tentar Novamente</button>";
+        }
+
+        // --- TECLADO E MOVIMENTO CONTÍNUO ---
+        const onKeyDown = function (event) {
+            switch (event.code) {
+                case 'KeyW': moveForward = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyS': moveBackward = true; break;
+                case 'KeyD': moveRight = true; break;
+                case 'Space': 
+                    // Só permite pular se estiver firme no chão
+                    if (controls.getObject().position.y <= 10.2) velocity.y += 170; 
+                    break;
+            }
+        };
+        const onKeyUp = function (event) {
+            switch (event.code) {
+                case 'KeyW': moveForward = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyS': moveBackward = false; break;
+                case 'KeyD': moveRight = false; break;
+            }
+        };
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+
+        controls.getObject().position.set(0, 10, 60);
+
+        // --- LOOP PRINCIPAL DO JOGO (60 FPS / DELTA TIMING) ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+
+            if (controls.isLocked && !gameOver) {
+                const pos = controls.getObject().position;
+
+                // Atrito e Gravidade do Jogador
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+                velocity.y -= 9.8 * 45.0 * delta; 
+
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+
+                const speed = 450.0;
+                if (moveForward || moveBackward) velocity.z -= direction.z * speed * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
+
+                controls.moveRight(-velocity.x * delta);
+                controls.moveForward(-velocity.z * delta);
+                pos.y += (velocity.y * delta);
+
+                if (pos.y < 10) {
+                    velocity.y = 0;
+                    pos.y = 10;
+                }
+
+                // Barreiras Invisíveis da Arena
+                if(pos.x > 115) pos.x = 115; if(pos.x < -115) pos.x = -115;
+                if(pos.z > 115) pos.z = 115; if(pos.z < -115) pos.z = -115;
+
+                // Atualizar Entidades Básicas
+                updateBoss(delta);
+
+                // Processar Projéteis Ativos
+                for (let i = projectiles.length - 1; i >= 0; i--) {
+                    let p = projectiles[i];
+                    p.position.addScaledVector(p.userData.direction, p.userData.speed * delta);
+                    p.userData.life -= delta;
+
+                    if (p.position.distanceTo(pos) < 3.5) {
+                        takeDamage(12);
+                        scene.remove(p);
+                        projectiles.splice(i, 1);
+                        continue;
+                    }
+                    if (p.userData.life <= 0) {
+                        scene.remove(p);
+                        projectiles.splice(i, 1);
+                    }
+                }
+
+                // Processar Ondas de Choque (Shockwaves)
+                for (let i = shockwaves.length - 1; i >= 0; i--) {
+                    let sw = shockwaves[i];
+                    sw.userData.radius += sw.userData.speed * delta;
+                    sw.scale.set(sw.userData.radius, sw.userData.radius, 1);
+                    
+                    let dist = sw.position.distanceTo(pos);
+                    // Jogador toma dano se a onda passar por ele e ele ESTIVER no chão (y baixo)
+                    if (Math.abs(dist - sw.userData.radius) < 4.0 && pos.y < 14) {
+                        takeDamage(15);
+                        scene.remove(sw);
+                        shockwaves.splice(i, 1);
+                        continue;
+                    }
+                    
+                    if (sw.userData.radius > sw.userData.maxRadius) {
+                        scene.remove(sw);
+                        shockwaves.splice(i, 1);
+                    }
+                }
+
+                // Processar Minions Giga (Perseguição agressiva)
+                for (let i = minions.length - 1; i >= 0; i--) {
+                    let m = minions[i];
+                    m.lookAt(pos.x, m.position.y, pos.z);
+                    m.translateZ(m.userData.speed * delta);
+
+                    // Detecção de hit box aumentada por conta do tamanho do minion
+                    if (m.position.distanceTo(pos) < 5.5) {
+                        takeDamage(m.userData.damage);
+                        scene.remove(m);
+                        minions.splice(i, 1);
+                    }
+                }
+
+                // Limpeza visual de lasers
+                for (let i = lasers.length - 1; i >= 0; i--) {
+                    lasers[i].life -= delta;
+                    if (lasers[i].life <= 0) {
+                        scene.remove(lasers[i].mesh);
+                        lasers.splice(i, 1);
+                    }
+                }
+                
+                pointLight.position.copy(pos);
+            }
+
+            renderer.render(scene, camera);
+            prevTime = time;
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
