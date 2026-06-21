@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ascendra - Hub de Jogos</title>
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #080b10;
+  color: #eef4f2;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem 1rem;
+}
+
+.background {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.background span {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99,209,182,.04) 0%, transparent 70%);
+  animation: float 20s infinite ease-in-out;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) scale(1); opacity: .3; }
+  50% { transform: translateY(-60px) scale(1.1); opacity: .6; }
+}
+
+header {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+header h1 {
+  font-size: 3rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+  background: linear-gradient(135deg, #63d1b6, #f0b257);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+header p {
+  color: #9daeb4;
+  font-size: 1.1rem;
+  margin-top: .5rem;
+}
+
+.grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  max-width: 1300px;
+  width: 100%;
+}
+
+.card {
+  background: rgba(10, 15, 19, 0.85);
+  border: 1px solid rgba(174, 214, 220, 0.12);
+  border-radius: 16px;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(8px);
+  transition: transform .25s, border-color .25s, box-shadow .25s;
+}
+
+.card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(99, 209, 182, .35);
+  box-shadow: 0 12px 40px rgba(99, 209, 182, .08);
+}
+
+.card-tag {
+  font-size: .75rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #63d1b6;
+  margin-bottom: .5rem;
+  font-weight: 600;
+}
+
+.card h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: .75rem;
+  line-height: 1.3;
+}
+
+.card p {
+  color: #9daeb4;
+  font-size: .95rem;
+  line-height: 1.6;
+  flex: 1;
+  margin-bottom: 1.5rem;
+}
+
+.card .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  background: linear-gradient(135deg, #63d1b6, #4ab89d);
+  color: #080b10;
+  font-weight: 700;
+  font-size: .95rem;
+  padding: .75rem 1.5rem;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: filter .2s, transform .15s;
+  align-self: flex-start;
+}
+
+.card .btn:hover {
+  filter: brightness(1.15);
+  transform: scale(1.03);
+}
+
+.card .btn:active {
+  transform: scale(.97);
+}
+
+footer {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: 2rem 0 1rem;
+  color: #4a5a60;
+  font-size: .85rem;
+}
+
+@media (max-width: 640px) {
+  header h1 { font-size: 2rem; }
+  .grid { grid-template-columns: 1fr; }
+  body { padding: 1rem; }
+}
+</style>
+</head>
+<body>
+
+<div class="background" id="bg"></div>
+
+<header>
+  <h1>ASCENDRA</h1>
+  <p>Hub de jogos experimentais</p>
+</header>
+
+<div class="grid">
+  <div class="card">
+    <div class="card-tag">Ação / FPS</div>
+    <h2>IRONCLAD 2.0</h2>
+    <p>Combate tático de mechs em primeira pessoa. Escolha seu mech, armas e facção, e domine o campo de batalha em diversos modos de jogo.</p>
+    <a class="btn" href="IRONCLAD_2.0_OFICIAL.html">▶ Jogar</a>
+  </div>
+
+  <div class="card">
+    <div class="card-tag">Plataforma / Tiro</div>
+    <h2>Edge Extrusion</h2>
+    <p>Um híbrido de plataforma e tiro com sistema de upgrades e habilidades. Lute, colete recursos e evolua seu personagem.</p>
+    <a class="btn" href="edge_extrusion.html">▶ Jogar</a>
+  </div>
+
+  <div class="card">
+    <div class="card-tag">Terror / Boss</div>
+    <h2>O Assovio da Noite</h2>
+    <p>Um FPS de terror onde você enfrenta "O Assoviador" em uma arena sombria. Use armas, habilidades e invocações para sobreviver.</p>
+    <a class="btn" href="O Assoviador-Alpha 1.4(HTML)">▶ Jogar</a>
+  </div>
+
+  <div class="card">
+    <div class="card-tag">Boss FPS</div>
+    <h2>Tung Tung Sahur</h2>
+    <p>Um pesadelo da madrugada. Enfrente um boss implacável com 5 padrões de ataque diferentes em uma batalha intensa e dinâmica.</p>
+    <a class="btn" href="TRIPLE-T-BOSS.html">▶ Jogar</a>
+  </div>
+</div>
+
+<footer>
+  <p>Ascendra Projec — criado pelos manos</p>
+</footer>
+
+<script>
+(function initBg() {
+  var bg = document.getElementById('bg');
+  for (var i = 0; i < 12; i++) {
+    var el = document.createElement('span');
+    var size = Math.random() * 300 + 100;
+    el.style.width = size + 'px';
+    el.style.height = size + 'px';
+    el.style.left = Math.random() * 100 + '%';
+    el.style.top = Math.random() * 100 + '%';
+    el.style.animationDelay = Math.random() * 20 + 's';
+    el.style.animationDuration = (Math.random() * 10 + 15) + 's';
+    bg.appendChild(el);
+  }
+})();
+</script>
+
+</body>
+</html>

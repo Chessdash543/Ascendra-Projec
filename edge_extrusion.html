@@ -82,8 +82,16 @@ h2.subtitle{
     background:#1a1a24;
     border:2px solid #2a9df4;
 }
+.choice.rare{
+    border:3px solid #ffd700;
+    box-shadow:0 0 20px rgba(255,215,0,0.3);
+    background:linear-gradient(160deg,#2a2410,#1a1a24);
+}
 .choice:hover{
     background:#22324a;
+}
+.choice.rare:hover{
+    background:#3a3410;
 }
 .choice b{
     display:block;
@@ -322,6 +330,10 @@ h2.subtitle{
 <div id="pauseOverlay" class="hidden" style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(0,0,0,0.7);z-index:15;">
     <h1>⏸ PAUSA</h1>
     <p style="opacity:0.6;margin-top:10px;">Pressione ESC para continuar</p>
+    <div style="display:flex;gap:12px;margin-top:20px;">
+     <button id="resetBtn" style="background:#8a2a2a;padding:12px 24px;font-size:16px;">🔄 RECOMEÇAR</button>
+     <button id="lobbyBtn" style="background:#2a6a8a;padding:12px 24px;font-size:16px;">🏠 VOLTAR AO LOBBY</button>
+    </div>
 </div>
 
 
@@ -349,6 +361,7 @@ h2.subtitle{
     <div style="display:flex;gap:10px;margin-top:2px;">
      <button id="settingsBtn" style="background:#3a3a48;font-size:14px;padding:8px 16px;">⚙️ CONFIG</button>
      <button id="debugBossBtn" style="background:#8a2a2a;font-size:14px;padding:8px 16px;">☠️ DEBUG: BOSS DIRETO</button>
+     <button id="devBtn" class="hidden" style="background:#b8860b;font-size:14px;padding:8px 16px;">👑 DEV MODE</button>
     </div>
     <div style="position:absolute;bottom:10px;right:14px;font-size:13px;opacity:0.5;letter-spacing:1px;">Beta 1.0</div>
 </div>
@@ -379,10 +392,30 @@ h2.subtitle{
     </div>
 </div>
 
+<div id="devPanel" class="hidden" style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(10,5,20,0.95);z-index:20;">
+    <h1 style="color:#ffd700;">👑 MODO DEV</h1>
+    <p style="opacity:0.6;margin-bottom:12px;">Atributos personalizados (aplicam ao iniciar o jogo)</p>
+    <div style="width:380px;max-height:60vh;overflow-y:auto;padding:0 10px;">
+     <div style="margin:8px 0;"><label>❤️ Vida Máxima: <span id="devHpVal">100</span></label><input id="devHp" type="range" min="20" max="500" value="100" style="width:100%;"></div>
+     <div style="margin:8px 0;"><label>💥 Dano: <span id="devDmgVal">15</span></label><input id="devDmg" type="range" min="1" max="200" value="15" style="width:100%;"></div>
+     <div style="margin:8px 0;"><label>🏃 Velocidade: <span id="devSpdVal">4</span></label><input id="devSpd" type="range" min="1" max="20" value="4" style="width:100%;"></div>
+     <div style="margin:8px 0;"><label>🔫 Cadência (ms): <span id="devRateVal">400</span></label><input id="devRate" type="range" min="30" max="1000" value="400" style="width:100%;"></div>
+     <div style="margin:8px 0;"><label>🚀 Vel. Projétil: <span id="devBspdVal">8.8</span></label><input id="devBspd" type="range" min="1" max="50" value="8.8" step="0.1" style="width:100%;"></div>
+     <div style="margin:8px 0;"><label>🔢 Projéteis: <span id="devBulVal">1</span></label><input id="devBul" type="range" min="1" max="20" value="1" style="width:100%;"></div>
+     <div style="margin:8px 0;"><label>🛡️ Escudo: <span id="devShdVal">0</span></label><input id="devShd" type="range" min="0" max="200" value="0" style="width:100%;"></div>
+     <div style="margin:8px 0;"><label>💚 Regeneração: <span id="devRegVal">0</span></label><input id="devReg" type="range" min="0" max="20" value="0" step="0.5" style="width:100%;"></div>
+    </div>
+    <div style="display:flex;gap:12px;margin-top:14px;">
+     <button id="devApplyBtn" style="background:#b8860b;">✅ APLICAR E INICIAR</button>
+     <button id="devCloseBtn" style="background:#3a3a48;">FECHAR</button>
+    </div>
+</div>
+
 <div id="gameOver" class="hidden">
     <h1 id="gameOverTitle">GAME OVER</h1>
     <h2 id="finalScore"></h2>
     <h3 id="bestScore"></h3>
+    <p id="devMsg" class="hidden" style="color:#ffd700;margin:8px 0;">👑 MODO DEV DESBLOQUEADO!</p>
     <button onclick="location.reload()">JOGAR NOVAMENTE</button>
 </div>
 
@@ -615,7 +648,7 @@ const abilities=[
     id:"windrunner",
     icon:"🌪️",
     name:"Pés Ligeiros",
-    desc:"Aumenta sua velocidade de movimento em 30% permanentemente. Deixa um rastro de vento. Ao ficar muito rápido (upgrades), desbloqueia 'Atropelamento' — enquanto não colidir, fica 1.5x mais rápido; ao colidir, onda de choque que afasta inimigos e mata o alvo.",
+     desc:"Aumenta sua velocidade de movimento em 30% permanentemente. Clique direito para ativar o Modo Vento: 2.5x velocidade por 2s. Recarga de 8s.",
    },
    {
      id:"piercing",
@@ -623,12 +656,18 @@ const abilities=[
      name:"Atravessamento",
      desc:"A cada 10 disparos (não conta balas multiplicadas), o próximo disparo inteiro perfura inimigos. As balas perfurantes são triângulos vermelhos brilhantes.",
     },
-    {
-     id:"blackhole",
-     icon:"🕳️",
-     name:"Buraco Negro",
-     desc:"A cada 6s, cria um buraco negro que suga inimigos em uma grande área por 2.5s, causando dano moderado ao longo do tempo.",
-    }
+     {
+      id:"blackhole",
+      icon:"🕳️",
+      name:"Buraco Negro",
+      desc:"A cada 6s, cria um buraco negro que suga inimigos em uma grande área por 2.5s, causando dano moderado ao longo do tempo.",
+     },
+     {
+      id:"overdrive",
+      icon:"⚡",
+      name:"Rajada Explosiva",
+      desc:"Clique direito para ativar o Modo Rajada: 3x velocidade de tiro e 3x velocidade de projétil por 2s. Recarga de 20s.",
+     },
 ];
 
 let chosenAbility=null; // string id
@@ -740,7 +779,7 @@ const player={
  hp:100,
  damage:15,
  fireRate:400,
- bulletSpeed:8,
+  bulletSpeed:8.8,
  xp:0,
  level:1,
  xpNeeded:30,
@@ -750,11 +789,11 @@ const player={
  shieldMax:0,
   angle:0,
   baseSpeed:4,
-  atropelamento:false,
-  bhTimer:0,
+   bhTimer:0,
   shotCount:0,
   piercingNext:false,
    dashCooldown:0,
+   dashCooldownTime:1500,
    dashTimer:0,
    dashDuration:150,
    dashDx:0,
@@ -763,7 +802,18 @@ const player={
    stamina:100,
    maxStamina:100,
    staminaRegen:0.15,
-   dashStaminaCost:30
+   dashStaminaCost:30,
+   overdriveActive:false,
+   overdriveTimer:0,
+   overdriveDuration:2000,
+   overdriveCooldown:20000,
+   overdriveCooldownTimer:0,
+   speedBoostActive:false,
+   speedBoostTimer:0,
+   speedBoostDuration:2000,
+   speedBoostCooldown:8000,
+   speedBoostCooldownTimer:0,
+
 };
 
 
@@ -784,6 +834,7 @@ let lasers=[]; // ataques de laser do boss (área temporária)
 let shockwaves=[]; // ondas de choque visuais da habilidade única e do boss
 let bombs=[]; // bombas deixadas pelo teleporte do boss
 let blackholes=[]; // buracos negros da habilidade do player
+let minions=[]; // mini-seguidores que orbitam e atiram
 let score=0;
 
 
@@ -801,11 +852,33 @@ addEventListener("keyup",e=>{
  if(e.key!=="Escape") keys[e.key.toLowerCase()]=false;
 });
 
-// Dash com botão esquerdo do mouse
+document.getElementById("resetBtn").onclick=function(){ location.reload(); };
+document.getElementById("lobbyBtn").onclick=function(){ location.reload(); };
+
+// Dash com botão esquerdo do mouse / Overdrive com botão direito
+addEventListener("contextmenu",function(e){ e.preventDefault(); });
 addEventListener("mousedown",e=>{
- if(e.button!==0) return;
- if(!gameStarted || paused || player.dashing) return;
- if(player.stamina<player.dashStaminaCost) return;
+  if(e.button===2){
+   if(chosenAbility==="overdrive" && gameStarted && !paused && !player.overdriveActive && player.overdriveCooldownTimer<=0){
+    player.overdriveActive=true;
+    player.overdriveTimer=0;
+    playSound("levelUp");
+    for(var ov=0;ov<12;ov++) particles.push(new Particle(player.x,player.y,"#ffff44"));
+    updateAbilityBadge();
+   }
+   else if(chosenAbility==="windrunner" && gameStarted && !paused && !player.speedBoostActive && player.speedBoostCooldownTimer<=0){
+    player.speedBoostActive=true;
+    player.speedBoostTimer=0;
+    playSound("dash");
+    for(var wv=0;wv<10;wv++) particles.push(new Particle(player.x,player.y,"rgba(200,255,200,0.7)"));
+    updateAbilityBadge();
+   }
+   return;
+  }
+  if(e.button!==0) return;
+  if(!gameStarted || paused || player.dashing) return;
+  if(player.stamina<player.dashStaminaCost) return;
+  if(player.dashCooldown>0) return;
  let mx=0,my=0;
  if(keys["w"]) my-=1;
  if(keys["s"]) my+=1;
@@ -822,6 +895,7 @@ addEventListener("mousedown",e=>{
  player.dashing=true;
  player.dashTimer=0;
  player.stamina-=player.dashStaminaCost;
+ player.dashCooldown=player.dashCooldownTime;
  playSound("dash");
 });
 
@@ -885,6 +959,11 @@ document.getElementById("musicVol").oninput=function(){
 
 function getMusicVolume(){ return masterVolume*musicVolume; }
 function getSfxVolume(){ return masterVolume*sfxVolume; }
+
+var graphicsMode="max";
+document.getElementById("graphicsSelect").onchange=function(){
+ graphicsMode=this.value;
+};
 
 // skins girando no lobby (canvas animation)
 function renderLobbySkins(){
@@ -1238,11 +1317,75 @@ document.getElementById("startBtn").onclick=()=>{
  gameStarted=true;
  document.getElementById("lobby").classList.add("hidden");
  stopLobbyMusic();
+ if(localStorage.getItem("ascendra_dev")==="true") applyDevAttributes();
  applyAbilityPassives();
  updateAbilityBadge();
  startGameplayMusic();
  startNextWave();
 };
+
+// Dev Mode
+function showDevBtn(){
+ var devBtn=document.getElementById("devBtn");
+ if(localStorage.getItem("ascendra_dev")==="true"){
+  devBtn.classList.remove("hidden");
+ } else {
+  devBtn.classList.add("hidden");
+ }
+}
+showDevBtn();
+
+document.getElementById("devBtn").onclick=function(){
+ document.getElementById("devPanel").classList.remove("hidden");
+ // sincroniza os spans com os valores atuais dos sliders
+ ["Hp","Dmg","Spd","Rate","Bspd","Bul","Shd","Reg"].forEach(function(k){
+  var el=document.getElementById("dev"+k);
+  if(el){
+   var val=parseFloat(el.value);
+   document.getElementById("dev"+k+"Val").textContent=el.step=="0.1"?val.toFixed(1):Math.round(val);
+  }
+ });
+};
+
+["Hp","Dmg","Spd","Rate","Bspd","Bul","Shd","Reg"].forEach(function(k){
+ var el=document.getElementById("dev"+k);
+ if(el){
+  el.oninput=function(){
+   var val=parseFloat(this.value);
+   document.getElementById("dev"+k+"Val").textContent=this.step=="0.1"?val.toFixed(1):Math.round(val);
+  };
+ }
+});
+
+document.getElementById("devCloseBtn").onclick=function(){
+ document.getElementById("devPanel").classList.add("hidden");
+};
+
+document.getElementById("devApplyBtn").onclick=function(){
+ document.getElementById("devPanel").classList.add("hidden");
+ document.getElementById("lobby").classList.add("hidden");
+ gameStarted=true;
+ stopLobbyMusic();
+ applyDevAttributes();
+ applyAbilityPassives();
+ updateAbilityBadge();
+ startGameplayMusic();
+ startNextWave();
+};
+
+function applyDevAttributes(){
+ player.maxHp=parseFloat(document.getElementById("devHp").value);
+ player.hp=player.maxHp;
+ player.damage=parseFloat(document.getElementById("devDmg").value);
+ player.baseSpeed=parseFloat(document.getElementById("devSpd").value);
+ player.speed=player.baseSpeed;
+ player.fireRate=parseFloat(document.getElementById("devRate").value);
+ player.bulletSpeed=parseFloat(document.getElementById("devBspd").value);
+ player.bullets=parseInt(document.getElementById("devBul").value);
+ player.shieldMax=parseFloat(document.getElementById("devShd").value);
+ player.shieldHp=player.shieldMax;
+ player.regen=parseFloat(document.getElementById("devReg").value);
+}
 
 document.getElementById("debugBossBtn").onclick=()=>{
  gameStarted=true;
@@ -1320,7 +1463,7 @@ document.getElementById("debugBossBtn").onclick=()=>{
 function applyAbilityPassives(){
  if(chosenAbility==="windrunner"){
   player.baseSpeed=4;
-  player.speed=player.baseSpeed*1.25;
+  player.speed=player.baseSpeed*1.30;
  }
  else if(chosenAbility==="bullmaster"){
    player.bulletSpeed*=0.5;
@@ -1329,9 +1472,15 @@ function applyAbilityPassives(){
 
 function updateAbilityBadge(){
  const ab=abilities.find(a=>a.id===chosenAbility);
- if(chosenAbility==="windrunner" && player.atropelamento){
-  abilityBadge.innerHTML=ab?`${ab.icon} <span>${ab.name} ⚡ ATROPELAMENTO</span>`:"";
- } else {
+ if(chosenAbility==="windrunner"){
+  var cd=Math.ceil(player.speedBoostCooldownTimer/1000);
+  var status=player.speedBoostActive?"🌪️ VENTO":(cd>0?"⏳ "+cd+"s":"✅ PRONTO");
+  abilityBadge.innerHTML=ab?`${ab.icon} <span>${ab.name} — ${status}</span>`:"";
+  } else if(chosenAbility==="overdrive"){
+   var cd=Math.ceil(player.overdriveCooldownTimer/1000);
+   var status=player.overdriveActive?"⚡ ATIVO":(cd>0?"⏳ "+cd+"s":"✅ PRONTO");
+   abilityBadge.innerHTML=ab?`${ab.icon} <span>${ab.name} — ${status}</span>`:"";
+  } else {
   abilityBadge.innerHTML=ab?`${ab.icon} <span>${ab.name}</span>`:"";
  }
 }
@@ -1861,8 +2010,10 @@ class Enemy{
   if(this.flashTime>0) color="white";
 
   // brilho pulsante por baixo
-  ctx.shadowColor=glow;
-  ctx.shadowBlur=14+Math.sin(this.pulsePhase)*4;
+  if(graphicsMode!=="low"){
+   ctx.shadowColor=glow;
+   ctx.shadowBlur=14+Math.sin(this.pulsePhase)*4;
+  }
 
   ctx.fillStyle=color;
 
@@ -2709,8 +2860,13 @@ class Bullet{
   this.piercingHits=0;
   this.piercingMaxHits=2;
   this.speedMag=Math.hypot(vx,vy);
+  this.trail=[];
  }
  update(){
+  if(graphicsMode!=="low"){
+   this.trail.push({x:this.x,y:this.y});
+   if(this.trail.length>6) this.trail.shift();
+  }
   // Atravessamento: balas perfurantes são teleguiadas independente da habilidade
   if(this.piercing || (this.homing && chosenAbility==="bullmaster")){
     const target=nearestEnemyTo(this.x,this.y,false);
@@ -2725,8 +2881,26 @@ class Bullet{
   }
   this.x+=this.vx; this.y+=this.vy;
  }
+
  draw(){
   const sx=toScreenX(this.x), sy=toScreenY(this.y);
+
+  // rastro (apenas no modo max)
+  if(graphicsMode!=="low"){
+   var trailColor=this.piercing?"#ff2222":(this.homing?"#ffd24d":"gold");
+   for(var t=0;t<this.trail.length;t++){
+    var alpha=(t+1)/this.trail.length*0.3;
+    var radius=this.r*(t+1)/this.trail.length*0.6;
+    ctx.save();
+    ctx.globalAlpha=alpha;
+    ctx.fillStyle=trailColor;
+    ctx.beginPath();
+    ctx.arc(toScreenX(this.trail[t].x),toScreenY(this.trail[t].y),radius,0,Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+   }
+  }
+
   ctx.save();
   if(this.piercing){
    // triângulo grande vermelho brilhante
@@ -2765,8 +2939,10 @@ class Bullet{
 let fireTimer=0;
 
 function tryFire(dt){
+ var fireRate=player.fireRate;
+ if(chosenAbility==="overdrive" && player.overdriveActive) fireRate=player.fireRate/3;
  fireTimer+=dt;
- if(fireTimer<player.fireRate) return;
+ if(fireTimer<fireRate) return;
  fireTimer=0;
 
  const targetX=toWorldX(mouse.x);
@@ -2782,21 +2958,26 @@ function tryFire(dt){
    }
   }
 
- const piercing=player.piercingNext;
+  const piercing=player.piercingNext;
 
- for(let i=0;i<player.bullets;i++){
-  const spread=(i-(player.bullets-1)/2)*0.12;
-  const angle=baseAngle+spread;
+  for(let i=0;i<player.bullets;i++){
+   const spread=(i-(player.bullets-1)/2)*0.12;
+   const angle=baseAngle+spread;
 
    const isHoming=chosenAbility==="bullmaster" && Math.random()<0.22;
 
-  bullets.push(new Bullet(
+   var bSpeed=player.bulletSpeed;
+   if(chosenAbility==="overdrive" && player.overdriveActive) bSpeed=player.bulletSpeed*3;
+   bullets.push(new Bullet(
    player.x,player.y,
-   Math.cos(angle)*player.bulletSpeed,
-   Math.sin(angle)*player.bulletSpeed,
+   Math.cos(angle)*bSpeed,
+   Math.sin(angle)*bSpeed,
    isHoming,
    piercing
   ));
+  if(chosenAbility==="overdrive" && player.overdriveActive){
+   for(var k=0;k<2;k++) particles.push(new Particle(player.x,player.y,"#ffff44"));
+  }
  }
  if(piercing) player.piercingNext=false;
  playSound("shoot");
@@ -2817,7 +2998,7 @@ function drawShockwaves(){
   ctx.save();
   ctx.globalAlpha=Math.max(0,s.life);
   ctx.strokeStyle=s.color||"#ffae42";
-  ctx.lineWidth=6;
+  ctx.lineWidth=graphicsMode==="low"?2:6;
   ctx.beginPath();
   ctx.arc(sx,sy,s.radius,0,Math.PI*2);
   ctx.stroke();
@@ -2825,6 +3006,46 @@ function drawShockwaves(){
  });
 }
 
+
+/* =======================================================
+   HABILIDADE: RAJADA EXPLOSIVA (overdrive)
+======================================================= */
+function updateOverdrive(dt){
+ if(chosenAbility!=="overdrive") return;
+ if(player.overdriveActive){
+  player.overdriveTimer+=dt;
+  if(player.overdriveTimer>=player.overdriveDuration){
+   player.overdriveActive=false;
+   player.overdriveTimer=0;
+   player.overdriveCooldownTimer=player.overdriveCooldown;
+  }
+ }
+ if(player.overdriveCooldownTimer>0){
+  player.overdriveCooldownTimer-=dt;
+  if(player.overdriveCooldownTimer<0) player.overdriveCooldownTimer=0;
+ }
+ updateAbilityBadge();
+}
+
+/* =======================================================
+   HABILIDADE: VENTO VELOZ (Pés Ligeiros — botão direito)
+======================================================= */
+function updateSpeedBoost(dt){
+ if(chosenAbility!=="windrunner") return;
+ if(player.speedBoostActive){
+  player.speedBoostTimer+=dt;
+  if(player.speedBoostTimer>=player.speedBoostDuration){
+   player.speedBoostActive=false;
+   player.speedBoostTimer=0;
+   player.speedBoostCooldownTimer=player.speedBoostCooldown;
+  }
+ }
+ if(player.speedBoostCooldownTimer>0){
+  player.speedBoostCooldownTimer-=dt;
+  if(player.speedBoostCooldownTimer<0) player.speedBoostCooldownTimer=0;
+ }
+ updateAbilityBadge();
+}
 
 /* =======================================================
    HABILIDADE: BURACO NEGRO
@@ -2870,11 +3091,66 @@ function drawBlackHoles(){
   const progress=bh.timer/BH_DURATION;
   const rad=BH_RADIUS*(0.3+progress*0.7);
   ctx.save();
-  ctx.strokeStyle=`rgba(120,0,255,${0.3+Math.sin(progress*10)*0.1})`;
-  ctx.lineWidth=4; ctx.shadowColor="#7a00ff"; ctx.shadowBlur=20;
+  if(graphicsMode!=="low"){
+   ctx.strokeStyle=`rgba(120,0,255,${0.3+Math.sin(progress*10)*0.1})`;
+   ctx.shadowColor="#7a00ff"; ctx.shadowBlur=20;
+  } else {
+   ctx.strokeStyle="rgba(120,0,255,0.4)";
+  }
+  ctx.lineWidth=4;
   ctx.beginPath(); ctx.arc(sx,sy,rad,0,Math.PI*2); ctx.stroke();
-  ctx.fillStyle=`rgba(60,0,120,${0.2*(1-progress)})`;
-  ctx.beginPath(); ctx.arc(sx,sy,rad*0.7,0,Math.PI*2); ctx.fill();
+  if(graphicsMode!=="low"){
+   ctx.fillStyle=`rgba(60,0,120,${0.2*(1-progress)})`;
+   ctx.beginPath(); ctx.arc(sx,sy,rad*0.7,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+ });
+}
+
+/* =======================================================
+   MINI-SEGUIDORES (orbitam e atiram)
+======================================================= */
+function updateMinions(dt){
+ minions.forEach(m=>{
+  m.angle+=m.orbitSpeed;
+  m.x=player.x+Math.cos(m.angle)*m.orbitDist;
+  m.y=player.y+Math.sin(m.angle)*m.orbitDist;
+  m.shootTimer+=dt;
+  if(m.shootTimer>=m.shootCooldown){
+   m.shootTimer=0;
+   m.damage=player.damage*0.6;
+   const target=nearestEnemyTo(m.x,m.y,false);
+   if(target){
+    const dx=target.x-m.x, dy=target.y-m.y;
+    const d=Math.hypot(dx,dy)||1;
+    bullets.push(new Bullet(
+     m.x,m.y,
+     dx/d*player.bulletSpeed,
+     dy/d*player.bulletSpeed,
+     false,false
+    ));
+    for(let i=0;i<3;i++) particles.push(new Particle(m.x,m.y,m.color));
+    playSound("shoot");
+   }
+  }
+ });
+}
+
+function drawMinions(){
+ minions.forEach(m=>{
+  const sx=toScreenX(m.x), sy=toScreenY(m.y);
+  ctx.save();
+  ctx.shadowColor=m.color;
+  ctx.shadowBlur=18;
+  ctx.fillStyle=m.color;
+  ctx.beginPath();
+  ctx.arc(sx,sy,8,0,Math.PI*2);
+  ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.fillStyle="rgba(255,255,255,0.5)";
+  ctx.beginPath();
+  ctx.arc(sx-2,sy-2,3,0,Math.PI*2);
+  ctx.fill();
   ctx.restore();
  });
 }
@@ -2969,17 +3245,13 @@ const debuffBanner={text:"",timer:0};
 const upgrades=[
  { name:"+20 Vida Máxima", desc:"Aumenta sua vida máxima e cura 20.",
    apply(){ player.maxHp+=20; player.hp+=20; } },
- { name:"+5 Dano", desc:"Suas balas causam mais dano.",
-   apply(){ player.damage+=5; } },
+ { name:"+10 Dano", desc:"Suas balas causam mais dano.",
+   apply(){ player.damage+=10; } },
  { name:"+10% Velocidade", desc:"Movimente-se mais rápido.",
    apply(){
     player.baseSpeed+=0.5;
     if(chosenAbility==="windrunner"){
-  player.speed=player.baseSpeed*1.30;
-     if(player.baseSpeed>=7 && !player.atropelamento){
-      player.atropelamento=true;
-      playSound("levelUp");
-     }
+     player.speed=player.baseSpeed*1.30;
     } else {
      player.speed+=0.5;
     }
@@ -2988,10 +3260,29 @@ const upgrades=[
    apply(){ player.bullets++; } },
  { name:"+20% Velocidade de Tiro", desc:"Reduz o intervalo entre tiros.",
    apply(){ player.fireRate=Math.max(80,player.fireRate*0.8); } },
- { name:"+0.5 Regeneração", desc:"Recupera vida lentamente com o tempo.",
-   apply(){ player.regen+=0.5; } },
- { name:"+30 Escudo", desc:"Ganha um escudo que absorve dano antes da vida.",
-   apply(){ player.shieldMax+=30; player.shieldHp+=30; } },
+ { name:"+1.5 Regeneração", desc:"Recupera vida lentamente com o tempo.",
+   apply(){ player.regen+=1.5; } },
+  { name:"+30 Escudo", desc:"Ganha um escudo que absorve dano antes da vida.",
+    apply(){ player.shieldMax+=30; player.shieldHp+=30; } },
+  { name:"+25% Velocidade de Projétil", desc:"Suas balas viajam mais rápido.",
+    apply(){ player.bulletSpeed*=1.25; } },
+  { name:"-20% Recarga do Dash", desc:"Reduz o tempo de espera do dash.",
+    apply(){ player.dashCooldownTime=Math.max(200,player.dashCooldownTime*0.8); } },
+];
+
+const rareUpgrades=[
+ { name:"⭐ Mini-Seguidor", desc:"Um orbe que orbita você e atira em inimigos automaticamente.",
+   apply(){
+    minions.push({
+     angle:0,
+     orbitDist:60,
+     orbitSpeed:0.03,
+     shootTimer:0,
+     shootCooldown:800,
+     damage:player.damage*0.6,
+     color:"#ff66ff"
+    });
+   } },
 ];
 
  function levelUp(){
@@ -3011,24 +3302,31 @@ const upgrades=[
  menu.classList.remove("hidden");
  document.getElementById("skinPanel").classList.add("hidden");
 
- let selected=[];
- while(selected.length<3){
-  let u=upgrades[Math.floor(Math.random()*upgrades.length)];
-  if(!selected.includes(u)) selected.push(u);
- }
+  let selected=[];
+  while(selected.length<3){
+   let u=upgrades[Math.floor(Math.random()*upgrades.length)];
+   if(!selected.includes(u)) selected.push(u);
+  }
 
-  selected.forEach(up=>{
-   const btn=document.createElement("button");
-   btn.className="choice";
-   btn.innerHTML=`<b>${up.name}</b><span>${up.desc}</span>`;
-   btn.addEventListener("mouseenter",()=>{playSound("hover");});
-   btn.onclick=()=>{
-    up.apply();
-    menu.classList.add("hidden");
-    paused=false;
-   };
-   choices.appendChild(btn);
-  });
+  // 5% de chance de substituir um upgrade normal por um raro
+  if(Math.random()<0.05 && rareUpgrades.length>0){
+   const rare=rareUpgrades[Math.floor(Math.random()*rareUpgrades.length)];
+   selected[Math.floor(Math.random()*selected.length)]=rare;
+  }
+
+   selected.forEach(up=>{
+    const btn=document.createElement("button");
+    const isRare=rareUpgrades.includes(up);
+    btn.className="choice"+(isRare?" rare":"");
+    btn.innerHTML=`<b>${up.name}</b><span>${up.desc}</span>`;
+    btn.addEventListener("mouseenter",()=>{playSound("hover");});
+    btn.onclick=()=>{
+     up.apply();
+     menu.classList.add("hidden");
+     paused=false;
+    };
+    choices.appendChild(btn);
+   });
 }
 
 /* ---------- painel de troca de skin (acessível durante o upgrade) ---------- */
@@ -3154,8 +3452,8 @@ function updateScreenShake(dt){
 }
 
 function getScreenShakeOffset(){
- if(screenShakeTime<=0) return {x:0,y:0};
- const falloff=screenShakeTime/400; // suaviza no final
+ if(graphicsMode==="low" || screenShakeTime<=0) return {x:0,y:0};
+ const falloff=screenShakeTime/400;
  const mag=screenShakeMag*Math.min(1,falloff);
  return {
   x:(Math.random()-0.5)*mag,
@@ -3169,6 +3467,7 @@ function triggerDamageFlash(){
 }
 
 function drawDamageFlash(){
+ if(graphicsMode==="low") return;
  if(damageFlashTimer>0){
   damageFlashTimer-=16;
   const alpha=Math.min(0.35, damageFlashTimer/600);
@@ -3193,10 +3492,12 @@ function victory(){
  gameStarted=false;
  let best=parseInt(localStorage.getItem("brotato_best")||0);
  if(score>best){ best=score; localStorage.setItem("brotato_best",best); }
+ localStorage.setItem("ascendra_dev","true");
 
  document.getElementById("gameOverTitle").textContent="VITÓRIA! 🏆";
  document.getElementById("finalScore").textContent="Pontuação: "+score;
  document.getElementById("bestScore").textContent="Recorde: "+best;
+ document.getElementById("devMsg").classList.remove("hidden");
  document.getElementById("gameOver").classList.remove("hidden");
 }
 
@@ -3212,21 +3513,22 @@ function update(dt){
  const spMul=currentSpeedMultiplier();
 
  // dash
- if(player.dashing){
-  player.dashTimer+=dt;
-  moveX=player.dashDx*30;
-  moveY=player.dashDy*30;
-  if(Math.random()<0.5) particles.push(new Particle(player.x,player.y,"rgba(200,200,255,0.6)"));
-  if(player.dashTimer>=player.dashDuration){
+  if(player.dashing){
+   player.dashTimer+=dt;
+   moveX=player.dashDx*30;
+   moveY=player.dashDy*30;
+   var dashPartChance=graphicsMode==="low"?0.1:0.5;
+   if(Math.random()<dashPartChance) particles.push(new Particle(player.x,player.y,"rgba(200,200,255,0.6)"));
+   if(player.dashTimer>=player.dashDuration){
    player.dashing=false;
   }
   } else {
-   let moveMul=1;
-   if(chosenAbility==="windrunner" && player.atropelamento) moveMul=1.5;
-   if(keys["w"]) moveY-=player.speed*spMul*moveMul;
-   if(keys["s"]) moveY+=player.speed*spMul*moveMul;
-   if(keys["a"]) moveX-=player.speed*spMul*moveMul;
-   if(keys["d"]) moveX+=player.speed*spMul*moveMul;
+   var speedMul=1;
+   if(chosenAbility==="windrunner" && player.speedBoostActive) speedMul=2.5;
+   if(keys["w"]) moveY-=player.speed*spMul*speedMul;
+   if(keys["s"]) moveY+=player.speed*spMul*speedMul;
+   if(keys["a"]) moveX-=player.speed*spMul*speedMul;
+   if(keys["d"]) moveX+=player.speed*spMul*speedMul;
   }
 
  player.x+=moveX;
@@ -3239,47 +3541,11 @@ function update(dt){
  if(player.dashCooldown>0) player.dashCooldown-=dt;
  if(player.stamina<player.maxStamina) player.stamina=Math.min(player.maxStamina,player.stamina+player.staminaRegen);
 
-  // rastro de vento (Pés Ligeiros) + atropelamento
-  if(chosenAbility==="windrunner"){
-   if(moveX!==0||moveY!==0){
-    if(Math.random()<0.4) particles.push(new Particle(player.x,player.y,"rgba(200,255,200,0.5)"));
-   }
-   if(player.atropelamento && (moveX!==0||moveY!==0)){
-    // enquanto não colidir: 1.5x mais rápido (aplicado no movimento)
-    let hitEnemy=null;
-    enemies.forEach(e=>{
-     if(e instanceof Boss) return;
-     const dc=Math.hypot(e.x-player.x,e.y-player.y);
-     if(dc<e.r+player.r+10){
-      hitEnemy=e;
-     }
-    });
-    if(hitEnemy){
-     // mata o inimigo colidido instantaneamente
-     const e=hitEnemy;
-     e.hp=0;
-     const isMini=e.type==="miniboss"||e.type==="sniper"||e.type==="blinker"||e.type==="dasher";
-     score+=isMini?80:(e.type==="sniper_common"||e.type==="runner"?3:1);
-     player.xp+=isMini?60:(e.type==="sniper_common"||e.type==="runner"?15:8);
-     for(let i=0;i<20;i++) particles.push(new Particle(e.x,e.y,"#88ff88"));
-     playSound("enemyDie");
-     enemies=enemies.filter(en=>en!==e);
-     // onda de choque que afasta bastante os inimigos
-     shockwaves.push({x:player.x,y:player.y,radius:5,maxRadius:200,life:1,color:"#88ff88"});
-     playSound("shockwave");
-     enemies.forEach(e2=>{
-      if(e2 instanceof Boss) return;
-      const dex=player.x-e2.x, dey=player.y-e2.y;
-      const ded=Math.hypot(dex,dey);
-      if(ded<200+e2.r && ded>0){
-       e2.takeDamage(player.damage*0.5);
-       const pushForce=15*(1-ded/200);
-       e2.x-=dex/ded*pushForce;
-       e2.y-=dey/ded*pushForce;
-      }
-     });
-    }
-   }
+  // rastro de vento (Pés Ligeiros)
+  if(chosenAbility==="windrunner" && (moveX!==0||moveY!==0)){
+   var windChance=graphicsMode==="low"?0.08:0.3;
+   if(Math.random()<windChance) particles.push(new Particle(player.x,player.y,"rgba(200,255,200,0.4)"));
+   if(player.speedBoostActive && Math.random()<windChance*1.5) particles.push(new Particle(player.x,player.y,"rgba(255,255,200,0.6)"));
   }
 
  player.x=Math.max(0,Math.min(WORLD_W,player.x));
@@ -3302,6 +3568,9 @@ function update(dt){
   player.shieldHp=Math.min(player.shieldMax,player.shieldHp+0.05);
  }
 
+ updateOverdrive(dt);
+ updateSpeedBoost(dt);
+ updateMinions(dt);
  updateCamera();
  updateIdle(dt);
  updateBlackHoleAbility(dt);
@@ -3316,19 +3585,19 @@ function update(dt){
   b.update();
 
    // balas não atravessam paredes + danificam paredes
-   if(bulletHitsWall(b.x,b.y,b.r)){
-    spawnImpactSpark(b.x,b.y);
-    const wallsToRemove=[];
-    obstacles.forEach(o=>{
-     if(o.hp!==undefined && circleRectCollision(b.x,b.y,b.r,o.x,o.y,o.w,o.h)){
-      o.hp-=1;
-      if(o.hp<=0) wallsToRemove.push(o);
-     }
-    });
-    if(wallsToRemove.length>0) obstacles=obstacles.filter(o=>!wallsToRemove.includes(o));
-    bullets.splice(bi,1);
-    return;
-   }
+    if(bulletHitsWall(b.x,b.y,b.r)){
+     spawnImpactSpark(b.x,b.y);
+     const wallsToRemove=[];
+     obstacles.forEach(o=>{
+      if(o.hp!==undefined && circleRectCollision(b.x,b.y,b.r,o.x,o.y,o.w,o.h)){
+       o.hp-=1;
+       if(o.hp<=0) wallsToRemove.push(o);
+      }
+     });
+     if(wallsToRemove.length>0) obstacles=obstacles.filter(o=>!wallsToRemove.includes(o));
+     bullets.splice(bi,1);
+     return;
+    }
 
   let bulletConsumed=false;
 
@@ -3336,14 +3605,14 @@ function update(dt){
   enemies.forEach((e,ei)=>{
    if(bulletConsumed || e instanceof Boss) return;
 
-   const d=Math.hypot(b.x-e.x,b.y-e.y);
-   if(d<b.r+e.r){
+    const d=Math.hypot(b.x-e.x,b.y-e.y);
+    if(d<b.r+e.r){
 
-    e.takeDamage(player.damage);
-    if(!b.piercing){
-     bullets.splice(bi,1);
-     bulletConsumed=true;
-    } else {
+     e.takeDamage(player.damage);
+     if(!b.piercing){
+      bullets.splice(bi,1);
+      bulletConsumed=true;
+     } else {
      b.piercingHits++;
      if(b.piercingHits>=b.piercingMaxHits){
       bullets.splice(bi,1);
@@ -3370,8 +3639,8 @@ function update(dt){
    const b2=boss.obj;
    const d=Math.hypot(b.x-b2.x,b.y-b2.y);
    if(d<b.r+b2.r){
-    b2.takeDamage(player.damage);
-    bullets.splice(bi,1);
+     b2.takeDamage(player.damage);
+     bullets.splice(bi,1);
     for(let i=0;i<8;i++) particles.push(new Particle(b2.x,b2.y,"#ff66cc"));
 
     if(b2.hp<=0){
@@ -3436,6 +3705,10 @@ function update(dt){
   p.update();
   if(p.life<=0) particles.splice(i,1);
  });
+ // low mode: cap de partículas
+ if(graphicsMode==="low" && particles.length>60){
+  particles.splice(0,particles.length-60);
+ }
 
  if(player.xp>=player.xpNeeded){
   levelUp();
@@ -3512,6 +3785,7 @@ const EDGE_MARGIN=36; // distância da borda onde a seta fica
 const INDICATOR_RANGE=1400; // só mostra seta pra inimigos a até essa distância
 
 function drawOffscreenIndicators(){
+ if(graphicsMode==="low") return;
  const halfW=canvas.width/2;
  const halfH=canvas.height/2;
  const cx=halfW, cy=halfH;
@@ -3605,8 +3879,8 @@ function drawWorld(){
  }
  ctx.stroke();
 
- // decorações flutuantes (puramente visuais)
- decorations.forEach(d=>{
+  // decorações flutuantes (puramente visuais) — puladas no low
+  if(graphicsMode!=="low") decorations.forEach(d=>{
   const sx=toScreenX(d.x), sy=toScreenY(d.y)+Math.sin(bgPulse*2+d.phase)*4;
   if(sx<-20||sx>canvas.width+20||sy<-20||sy>canvas.height+20) return;
   ctx.fillStyle=biome.decorColor;
@@ -3615,10 +3889,10 @@ function drawWorld(){
   ctx.fill();
  });
 
- // elementos únicos do bioma
- uniqueElements.forEach(u=>{
-  const usx=toScreenX(u.x), usy=toScreenY(u.y);
-  if(usx<-60||usx>canvas.width+60||usy<-60||usy>canvas.height+60) return;
+  // elementos únicos do bioma (pulados no low)
+  if(graphicsMode!=="low") uniqueElements.forEach(u=>{
+   const usx=toScreenX(u.x), usy=toScreenY(u.y);
+   if(usx<-60||usx>canvas.width+60||usy<-60||usy>canvas.height+60) return;
   ctx.save();
   if(u.type==="spikes"){
    ctx.fillStyle=u.color;
@@ -3733,20 +4007,48 @@ function draw(){
 
  const psx=toScreenX(player.x), psy=toScreenY(player.y);
 
- // escudo do jogador (visual)
- if(player.shieldHp>0){
-  ctx.save();
-  ctx.shadowColor="rgba(120,200,255,0.8)";
-  ctx.shadowBlur=12;
-  ctx.strokeStyle="rgba(120,200,255,0.7)";
-  ctx.lineWidth=3;
-  ctx.beginPath();
-  ctx.arc(psx,psy,player.r+8,0,Math.PI*2);
-  ctx.stroke();
-  ctx.restore();
- }
+  // escudo do jogador (visual)
+  if(player.shieldHp>0){
+   ctx.save();
+   ctx.shadowColor="rgba(120,200,255,0.8)";
+   ctx.shadowBlur=12;
+   ctx.strokeStyle="rgba(120,200,255,0.7)";
+   ctx.lineWidth=3;
+   ctx.beginPath();
+   ctx.arc(psx,psy,player.r+8,0,Math.PI*2);
+   ctx.stroke();
+   ctx.restore();
+  }
 
- drawPlayerShape(ctx,psx,psy,player.r,chosenSkin,player.angle,false);
+  // aura da Rajada Explosiva
+  if(chosenAbility==="overdrive" && player.overdriveActive){
+   var pulse=0.7+Math.sin(Date.now()*0.015)*0.3;
+   ctx.save();
+   ctx.shadowColor="rgba(255,255,68,0.6)";
+   ctx.shadowBlur=30;
+   ctx.strokeStyle=`rgba(255,255,68,${pulse*0.4})`;
+   ctx.lineWidth=4;
+   ctx.beginPath();
+   ctx.arc(psx,psy,player.r+18+Math.sin(Date.now()*0.01)*4,0,Math.PI*2);
+   ctx.stroke();
+   ctx.restore();
+  }
+
+  // aura do Vento Veloz
+  if(chosenAbility==="windrunner" && player.speedBoostActive){
+   var wpulse=0.6+Math.sin(Date.now()*0.02)*0.3;
+   ctx.save();
+   ctx.shadowColor="rgba(200,255,200,0.5)";
+   ctx.shadowBlur=25;
+   ctx.strokeStyle=`rgba(200,255,200,${wpulse*0.35})`;
+   ctx.lineWidth=3;
+   ctx.beginPath();
+   ctx.arc(psx,psy,player.r+14+Math.sin(Date.now()*0.012)*3,0,Math.PI*2);
+   ctx.stroke();
+   ctx.restore();
+  }
+
+  drawPlayerShape(ctx,psx,psy,player.r,chosenSkin,player.angle,false);
 
  // linha de mira sutil até o mouse
  ctx.strokeStyle="rgba(255,255,255,0.15)";
@@ -3756,10 +4058,11 @@ function draw(){
  ctx.lineTo(mouse.x,mouse.y);
  ctx.stroke();
 
- bullets.forEach(b=>b.draw());
- enemyBullets.forEach(b=>b.draw());
- enemies.forEach(e=>e.draw());
- particles.forEach(p=>p.draw());
+  drawMinions();
+  bullets.forEach(b=>b.draw());
+  enemyBullets.forEach(b=>b.draw());
+  enemies.forEach(e=>e.draw());
+  particles.forEach(p=>p.draw());
 
  drawOffscreenIndicators();
 
