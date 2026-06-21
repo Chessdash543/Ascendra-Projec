@@ -42,6 +42,7 @@ struct Vec2 {
     float x, y;
     Vec2() : x(0), y(0) {}
     Vec2(float x, float y) : x(x), y(y) {}
+    Vec2(Vector2 v) : x(v.x), y(v.y) {}
     float len() const { return sqrtf(x*x + y*y); }
     Vec2 normalized() const { float l=len(); return l>0 ? Vec2(x/l,y/l) : Vec2(0,0); }
     Vec2 operator+(const Vec2& o) const { return Vec2(x+o.x, y+o.y); }
@@ -99,14 +100,15 @@ struct Particle {
 
 struct Bullet {
     Vec2 pos, vel;
-    float r, speedMag;
+    float r, speedMag, damage;
     bool homing, piercing;
     int piercingHits, piercingMaxHits;
-    std::vector<Vec2> trail;
+    Vec2 trail[6];
+    int trailCount;
     bool active;
     
-    Bullet() : r(5), speedMag(0), homing(false), piercing(false),
-               piercingHits(0), piercingMaxHits(2), active(true) {}
+    Bullet() : r(5), speedMag(0), damage(1), homing(false), piercing(false),
+               piercingHits(0), piercingMaxHits(2), active(true), trailCount(0) {}
 };
 
 struct Minion {
@@ -158,11 +160,11 @@ struct Biome {
 
 Biome biomes[3] = {
     {"Planicie Cinzenta", hexToCol(0x181b22), {255,255,255,9}, hexToCol(0x3a4a6a),
-     hexToCol(0x2e3548), hexToCol(0x5a6a9a), 0, hexToCol(0xaa5555), 5},
+     hexToCol(0x2e3548), hexToCol(0x5a6a9a), hexToCol(0x788acc), 0, hexToCol(0xaa5555), 5},
     {"Pantano Venenoso", hexToCol(0x10201a), {140,255,170,10}, hexToCol(0x1f5c3f),
-     hexToCol(0x16331f), hexToCol(0x3fae6e), 1, hexToCol(0x66ff66), 6},
+     hexToCol(0x16331f), hexToCol(0x3fae6e), hexToCol(0x5adc8c), 1, hexToCol(0x66ff66), 6},
     {"Caverna Carmesim", hexToCol(0x220e10), {255,100,100,11}, hexToCol(0x5c1f24),
-     hexToCol(0x3a1518), hexToCol(0xb03a3a), 2, hexToCol(0xff4400), 4}
+     hexToCol(0x3a1518), hexToCol(0xb03a3a), hexToCol(0xff5a5a), 2, hexToCol(0xff4400), 4}
 };
 
 // ----------------------------------------------------------------
@@ -185,7 +187,7 @@ static bool playerDashing=false, playerDashCD=false;
 static int playerDashTimer=0, playerDashDuration=150, playerDashCooldown=0, playerDashCooldownTime=1500;
 static float playerStamina=100, playerMaxStamina=100, playerStaminaRegen=0.15f;
 static float playerDashStaminaCost=30;
-static bool overdriveActive=false, overdriveTimer=0;
+static bool overdriveActive=false; static int overdriveTimer=0;
 static int overdriveDuration=2000, overdriveCooldown=20000, overdriveCooldownTimer=0;
 static bool speedBoostActive=false;
 static int speedBoostTimer=0, speedBoostDuration=2000, speedBoostCooldown=8000, speedBoostCooldownTimer=0;
@@ -227,7 +229,7 @@ static Wave generateSineWave(float freq, float duration, float volume) {
     }
     Wave w = {0};
     w.data = data;
-    w.sampleCount = samples;
+    w.frameCount = samples;
     w.sampleRate = sampleRate;
     w.sampleSize = 16;
     w.channels = 1;
@@ -245,7 +247,7 @@ static Sound makeSound(float freq, float dur, float vol, float sweep) {
         data[i] = (short)clamp(val,-32767,32767);
     }
     Wave w = {0};
-    w.data = data; w.sampleCount = samples;
+    w.data = data; w.frameCount = samples;
     w.sampleRate = sr; w.sampleSize = 16; w.channels = 1;
     Sound s = LoadSoundFromWave(w);
     UnloadWave(w);
@@ -302,6 +304,11 @@ static bool circleRect(Vec2 c, float cr, float rx, float ry, float rw, float rh)
     float dx = c.x-nx, dy = c.y-ny;
     return (dx*dx+dy*dy) < (cr*cr);
 }
+
+// upgrade menu state
+static int upgradeCycleTimer = 0;
+static bool upgradeCycleFinished = false;
+static int upgradeDisplay1 = -1, upgradeDisplay2 = -1, upgradeDisplay3 = -1;
 
 // ----------------------------------------------------------------
 // CAMERA / SCREEN
@@ -440,7 +447,7 @@ public:
         flashTime = 8;
     }
     
-    void update(int dt) {
+    virtual void update(int dt) {
         angle += 0.05f;
         pulsePhase += 0.06f;
         if (flashTime>0) flashTime--;
@@ -597,7 +604,7 @@ public:
         if (d < playerR+r) { /* contact damage handled in main */ }
     }
     
-    void draw() {
+    virtual void draw() {
         float sx = toScreenX(pos.x), sy = toScreenY(pos.y);
         if (sx<-100||sx>SCREEN_W+100||sy<-100||sy>SCREEN_H+100) return;
         
@@ -1128,103 +1135,247 @@ static void drawWorld() {
 
 static void drawHUD() {
     // HP bar
-    DrawText(TextFormat("Nivel: %d | XP: %d/%d", playerLevel, playerXp, playerXpNeeded), 12, 10, 18, WHITE);
-    DrawRectangle(12, 34, 230, 18, {42,8,8,255});
-    DrawRectangle(12, 34, 230*(playerHp/playerMaxHp), 18, COL_HP);
-    DrawRectangleLines(12, 34, 230, 18, {110,20,20,255});
+    DrawText(TextFormat("Nivel %d | XP: %d/%d", playerLevel, playerXp, playerXpNeeded), 12, 10, 16, WHITE);
+
+    // HP bar background with gradient effect
+    DrawRectangle(12, 30, 230, 20, {42,8,8,255});
+    float hpPct = playerHp/playerMaxHp;
+    Color hpCol = hpPct > 0.5f ? COL_HP : Color{255,180,0,(unsigned char)(hpPct>0.25f?255:180)};
+    if (hpPct <= 0.25f) hpCol = {255,60,60,255};
+    DrawRectangle(12, 30, 230*hpPct, 20, hpCol);
+    // inner highlight
+    if (hpPct > 0.05f) DrawRectangle(14, 32, 226*hpPct-4, 5, {255,255,255,25});
+    DrawRectangleLines(12, 30, 230, 20, {110,20,20,255});
+    DrawText(TextFormat("%.0f/%.0f", playerHp, playerMaxHp), 130 - MeasureText(TextFormat("%.0f/%.0f", playerHp, playerMaxHp), 12)/2, 34, 12, WHITE);
     
+    int hudY = 55;
+    // shield bar
     if (playerShieldMax > 0) {
-        DrawRectangle(12, 56, 230, 8, {40,80,120,76});
-        DrawRectangle(12, 56, 230*(playerShieldHp/playerShieldMax), 8, COL_SHIELD);
+        DrawRectangle(12, hudY, 230, 10, {40,80,120,76});
+        DrawRectangle(12, hudY, 230*(playerShieldHp/playerShieldMax), 10, COL_SHIELD);
+        DrawRectangleLines(12, hudY, 230, 10, {60,120,180,120});
+        hudY += 15;
     }
     
-    DrawText(TextFormat("Pontos: %d", score), 12, 68, 18, WHITE);
+    DrawText(TextFormat("Pontos: %d", score), 12, hudY, 14, WHITE);
+    hudY += 18;
     
-    // stamina
-    DrawRectangle(12, 92, 60, 6, {0,0,0,128});
-    DrawRectangle(12, 92, 60*(playerStamina/playerMaxStamina), 6, COL_STAMINA);
+    // stamina bar
+    DrawText("ST", 12, hudY, 10, {180,180,200,200});
+    DrawRectangle(26, hudY, 50, 8, {0,0,0,128});
+    DrawRectangle(26, hudY, 50*(playerStamina/playerMaxStamina), 8, COL_STAMINA);
+    DrawRectangleLines(26, hudY, 50, 8, {80,120,80,100});
+    hudY += 14;
     
-    // wave info
+    // wave info on top-right with background
     const char* waveText = "";
     const char* biomeName = biomes[currentBiomeIndex].name;
-    if (wave.phase == WAVE_NORMAL)
+    Color waveColor = WHITE;
+    if (wave.phase == WAVE_NORMAL) {
         waveText = TextFormat("Onda %d/%d | %s", wave.number, TOTAL_WAVES, biomeName);
-    else if (wave.phase == WAVE_MINIBOSS)
+    } else if (wave.phase == WAVE_MINIBOSS) {
         waveText = TextFormat("Mini-Chefe | %s", biomeName);
-    else if (wave.phase == WAVE_BOSS)
+        waveColor = {255,200,80,255};
+    } else if (wave.phase == WAVE_BOSS) {
         waveText = TextFormat("CHEFE FINAL | %s", biomeName);
-    else if (wave.phase == WAVE_CLEARED)
+        waveColor = {255,60,60,255};
+        float pulseW = 0.8f+sinf(GetTime()*0.005f)*0.2f;
+        waveColor.a = (unsigned char)(255*pulseW);
+    } else if (wave.phase == WAVE_CLEARED) {
         waveText = "VITORIA!";
+        waveColor = COL_GOLD;
+        waveColor.a = (unsigned char)(200+int(sinf(GetTime()*0.004f)*55));
+    }
     
-    int tw = MeasureText(waveText, 18);
-    DrawText(waveText, SCREEN_W - tw - 12, 10, 18, WHITE);
+    int tw = MeasureText(waveText, 14);
+    int waveX = SCREEN_W - tw - 15;
+    DrawRectangle(waveX-4, 8, tw+8, 22, {0,0,0,100});
+    DrawText(waveText, waveX, 12, 14, waveColor);
     
-    // ability badge
+    // ability badge bottom-right
     const char* abText = "";
+    Color abColor = {200,200,200,255};
     switch(chosenAbility) {
-        case ABILITY_BULLMASTER: abText = "Bull Master"; break;
+        case ABILITY_BULLMASTER: abText = "Bull Master"; abColor={255,170,50,255}; break;
         case ABILITY_WINDRUNNER: {
-            if (speedBoostActive) abText = "Pes Ligeiros — VENTO";
-            else if (speedBoostCooldownTimer>0)
-                abText = TextFormat("Pes Ligeiros — %ds", speedBoostCooldownTimer/1000+1);
-            else abText = "Pes Ligeiros — PRONTO";
+            if (speedBoostActive) { abText = "Pes Ligeiros — VENTO"; abColor={150,255,150,255}; }
+            else if (speedBoostCooldownTimer>0) { abText = TextFormat("Pes Ligeiros — %ds", speedBoostCooldownTimer/1000+1); abColor={150,200,150,200}; }
+            else { abText = "Pes Ligeiros — PRONTO"; abColor={100,255,100,255}; }
             break;
         }
-        case ABILITY_PIERCING: abText = "Atravessamento"; break;
-        case ABILITY_BLACKHOLE: abText = "Buraco Negro"; break;
+        case ABILITY_PIERCING: abText = "Atravessamento"; abColor={255,100,100,255}; break;
+        case ABILITY_BLACKHOLE: abText = "Buraco Negro"; abColor={160,80,255,255}; break;
         case ABILITY_OVERDRIVE: {
-            if (overdriveActive) abText = "Rajada Explosiva — ATIVO";
-            else if (overdriveCooldownTimer>0)
-                abText = TextFormat("Rajada Explosiva — %ds", overdriveCooldownTimer/1000+1);
-            else abText = "Rajada Explosiva — PRONTO";
+            if (overdriveActive) { abText = "Rajada Explosiva — ATIVO"; abColor={255,255,80,255}; }
+            else if (overdriveCooldownTimer>0) { abText = TextFormat("Rajada Explosiva — %ds", overdriveCooldownTimer/1000+1); abColor={200,200,100,200}; }
+            else { abText = "Rajada Explosiva — PRONTO"; abColor={255,255,100,255}; }
             break;
         }
         default: break;
     }
-    if (abText[0]) DrawText(abText, 12, 108, 14, {200,200,200,255});
+    if (abText[0]) {
+        int abW = MeasureText(abText, 13);
+        int abX = SCREEN_W - abW - 15;
+        DrawRectangle(abX-4, SCREEN_H-30, abW+8, 22, {0,0,0,120});
+        DrawText(abText, abX, SCREEN_H-27, 13, abColor);
+    }
 }
 
 static void drawMenu() {
     ClearBackground({10,5,20,255});
-    DrawText("EDGE EXTRUSION", SCREEN_W/2-MeasureText("EDGE EXTRUSION", 50)/2, 150, 50, COL_GOLD);
-    DrawText("WASD para mover", SCREEN_W/2-MeasureText("WASD para mover", 20)/2, 250, 20, WHITE);
-    DrawText("Mire com o mouse", SCREEN_W/2-MeasureText("Mire com o mouse", 20)/2, 280, 20, WHITE);
-    DrawText("Sobreviva a 15 ondas e derrote o CHEFAO", SCREEN_W/2-MeasureText("Sobreviva a 15 ondas e derrote o CHEFAO", 20)/2, 310, 20, WHITE);
-    DrawText("Pressione ESPACO para continuar", SCREEN_W/2-MeasureText("Pressione ESPACO para continuar", 20)/2, 380, 20, {200,200,200,200});
+    // animated background particles
+    for (int i=0; i<30; i++) {
+        float px = (sinf(GetTime()*0.001f*(i%7+2)+i)*0.5f+0.5f) * SCREEN_W;
+        float py = (cosf(GetTime()*0.0008f*(i%5+3)+i*2)*0.5f+0.5f) * SCREEN_H;
+        DrawCircle(px, py, 2, {(unsigned char)(100+i*5),(unsigned char)(60+i*3),(unsigned char)(150+i*4),40});
+    }
+    // title with glow
+    float tp = 0.9f + sinf(GetTime()*0.002f)*0.1f;
+    Color tcol = COL_GOLD; tcol.a = (unsigned char)(255*tp);
+    int tw = MeasureText("EDGE EXTRUSION", 50);
+    DrawText("EDGE EXTRUSION", SCREEN_W/2-tw/2, 150, 50, tcol);
+    // subtitle glow
+    Color subCol = {180,180,200,(unsigned char)(100 + int(sinf(GetTime()*0.0015f)*40))};
+    DrawText("Sobreviva. Evolua. Extrude.", SCREEN_W/2-MeasureText("Sobreviva. Evolua. Extrude.", 18)/2, 210, 18, subCol);
+    
+    DrawText("WASD para mover", SCREEN_W/2-MeasureText("WASD para mover", 20)/2, 270, 20, WHITE);
+    DrawText("Mire com o mouse", SCREEN_W/2-MeasureText("Mire com o mouse", 20)/2, 300, 20, WHITE);
+    DrawText("Sobreviva a 15 ondas e derrote o CHEFAO", SCREEN_W/2-MeasureText("Sobreviva a 15 ondas e derrote o CHEFAO", 20)/2, 330, 20, WHITE);
+    
+    // blink
+    float ba = 0.5f + sinf(GetTime()*0.003f)*0.5f;
+    Color hintCol = {200,200,200,(unsigned char)(ba*255)};
+    DrawText("Pressione ESPACO para continuar", SCREEN_W/2-MeasureText("Pressione ESPACO para continuar", 20)/2, 400, 20, hintCol);
     
     if (devModeUnlocked) {
-        DrawText("MODO DEV DESBLOQUEADO!", SCREEN_W/2-MeasureText("MODO DEV DESBLOQUEADO!", 24)/2, 420, 24, COL_GOLD);
+        float ga = 0.8f + sinf(GetTime()*0.004f)*0.2f;
+        Color dc = COL_GOLD; dc.a = (unsigned char)(255*ga);
+        DrawText("MODO DEV DESBLOQUEADO!", SCREEN_W/2-MeasureText("MODO DEV DESBLOQUEADO!", 24)/2, 450, 24, dc);
     }
 }
 
 static void drawLobby() {
     ClearBackground({15,10,30,255});
-    DrawText("ESCOLHA SUA HABILIDADE", SCREEN_W/2-MeasureText("ESCOLHA SUA HABILIDADE", 30)/2, 60, 30, WHITE);
-    DrawText("1-5 para selecionar, ESPACO para comecar", SCREEN_W/2-MeasureText("1-5 para selecionar, ESPACO para comecar", 16)/2, 100, 16, {180,180,180,255});
+    // animated particles
+    for (int i=0; i<20; i++) {
+        float px = (sinf(GetTime()*0.0009f*(i%6+2)+i)*0.5f+0.5f) * SCREEN_W;
+        float py = (cosf(GetTime()*0.0007f*(i%4+3)+i*3)*0.5f+0.5f) * SCREEN_H;
+        DrawCircle(px, py, 2, {(unsigned char)(80+i*6),(unsigned char)(50+i*3),(unsigned char)(140+i*5),30});
+    }
+    
+    float tp = 0.9f + sinf(GetTime()*0.002f)*0.1f;
+    Color tcol = {255,255,255,(unsigned char)(255*tp)};
+    DrawText("ESCOLHA SUA HABILIDADE", SCREEN_W/2-MeasureText("ESCOLHA SUA HABILIDADE", 30)/2, 50, 30, tcol);
+    DrawText("1-5 para selecionar, ESPACO para comecar", SCREEN_W/2-MeasureText("1-5 para selecionar, ESPACO para comecar", 16)/2, 90, 16, {180,180,180,255});
     
     const char* abNames[] = {"Bull Master","Pes Ligeiros","Atravessamento","Buraco Negro","Rajada Explosiva"};
-    const char* abIcons[] = {"[Bull]","[Wind]","[Pierce]","[BlackH]","[Overdr]"};
+    const char* abIcons[] = {"B","W","P","H","R"};
+    const char* abDescs[] = {"Investida veloz","Velocidade加倍","Tiros perfurantes","Gravidade mortal","Rajada explosiva"};
+    const char* abKeys[] = {"1","2","3","4","5"};
+    Color abColors[] = {{255,170,50,255},{100,255,100,255},{255,100,100,255},{160,80,255,255},{255,255,80,255}};
+    
+    int boxW = 200, boxH = 90, gap = 12;
+    int totalW = boxW*5 + gap*4;
+    int startX = SCREEN_W/2 - totalW/2;
+    int boxY = 150;
+    
     for (int i=0; i<5; i++) {
-        Color c = (int)chosenAbility==i ? COL_GOLD : WHITE;
-        DrawText(TextFormat("%d: %s %s", i+1, abIcons[i], abNames[i]), 
-                 SCREEN_W/2-200, 150+i*40, 20, c);
+        int bx = startX + i*(boxW+gap);
+        bool selected = (int)chosenAbility==i;
+        Color bg = selected ? Color{50,40,70,230} : Color{20,15,35,200};
+        Color border = selected ? abColors[i] : Color{60,50,80,150};
+        DrawRectangle(bx, boxY, boxW, boxH, bg);
+        DrawRectangleLines(bx, boxY, boxW, boxH, border);
+        if (selected) {
+            DrawRectangleLines(bx+2, boxY+2, boxW-4, boxH-4, Color{border.r,border.g,border.b,60});
+        }
+        // key badge
+        DrawCircle(bx+20, boxY+20, 12, abColors[i]);
+        DrawText(abKeys[i], bx+15, boxY+14, 14, {5,3,15,255});
+        // icon
+        DrawText(abIcons[i], bx+42, boxY+12, 18, abColors[i]);
+        // name
+        DrawText(abNames[i], bx+10, boxY+42, 14, selected?COL_GOLD:Color{200,200,200,255});
+        // desc
+        DrawText(abDescs[i], bx+10, boxY+62, 11, {150,150,170,200});
     }
     
     if (devModeUnlocked) {
-        DrawText("[D] MODO DEV", SCREEN_W/2-MeasureText("[D] MODO DEV", 20)/2, 400, 20, COL_GOLD);
+        float ga = 0.8f + sinf(GetTime()*0.004f)*0.2f;
+        Color dc = COL_GOLD; dc.a = (unsigned char)(255*ga);
+        DrawText("[D] MODO DEV", SCREEN_W/2-MeasureText("[D] MODO DEV", 20)/2, 400, 20, dc);
     }
 }
 
 static void drawUpgradeMenu() {
-    ClearBackground({10,5,20,200});
-    DrawText("ESCOLHA UM UPGRADE", SCREEN_W/2-MeasureText("ESCOLHA UM UPGRADE", 30)/2, 200, 30, WHITE);
-    // simulated 3 choices
-    for (int i=0; i<3; i++) {
-        int idx = rand() % upgrades.size();
-        DrawText(upgrades[idx].name, SCREEN_W/2-150, 270+i*50, 20, COL_GOLD);
-        DrawText(upgrades[idx].desc, SCREEN_W/2-150, 295+i*50, 14, {180,180,180,255});
+    // dark overlay
+    DrawRectangle(0, 0, SCREEN_W, SCREEN_H, {5,3,15,220});
+
+    // title with glow
+    const char* title = "UPGRADE";
+    float pulse = 0.9f + sinf(GetTime()*0.003f)*0.1f;
+    int titleW = MeasureText(title, 40);
+    int titleX = SCREEN_W/2 - titleW/2;
+    Color titleColor = {255,215,0,(unsigned char)(255*pulse)};
+    DrawText(title, titleX, 120, 40, titleColor);
+    // decorative lines
+    for (int i=0; i<2; i++) {
+        int lx = i==0 ? titleX-40 : titleX+titleW+10;
+        int ly = 148;
+        DrawRectangle(lx, ly, 30, 2, COL_GOLD);
     }
-    DrawText("Pressione 1, 2 ou 3 para escolher", SCREEN_W/2-MeasureText("Pressione 1, 2 ou 3 para escolher", 16)/2, 450, 16, {180,180,180,255});
+
+    // level info
+    DrawText(TextFormat("Nivel %d", playerLevel), SCREEN_W/2 - MeasureText(TextFormat("Nivel %d", playerLevel), 16)/2, 170, 16, {180,180,180,255});
+
+    // choice boxes
+    int choices[3] = {upgradeDisplay1, upgradeDisplay2, upgradeDisplay3};
+    int boxW = 320, boxH = 100;
+    int startX = SCREEN_W/2 - (boxW*3 + 30)/2;
+    int boxY = 210;
+
+    for (int i=0; i<3; i++) {
+        int bx = startX + i*(boxW+15);
+        int by = boxY;
+        int idx = choices[i];
+
+        // box background
+        bool hovered = false;
+        if (upgradeCycleFinished) {
+            Vector2 mp = GetMousePosition();
+            hovered = (mp.x >= bx && mp.x <= bx+boxW && mp.y >= by && mp.y <= by+boxH);
+        }
+
+        Color boxBg = hovered ? Color{40,30,60,230} : Color{20,15,35,220};
+        Color boxBorder = hovered ? COL_GOLD : Color{80,70,100,180};
+
+        DrawRectangle(bx, by, boxW, boxH, boxBg);
+        DrawRectangleLines(bx, by, boxW, boxH, boxBorder);
+
+        // key number
+        DrawText(TextFormat("%d", i+1), bx+10, by+8, 18, hovered?COL_GOLD:Color{150,140,170,255});
+
+        if (idx >= 0 && idx < (int)upgrades.size()) {
+            // name
+            Color nameColor = upgradeCycleFinished ? COL_GOLD : Color{120,110,140,200};
+            DrawText(upgrades[idx].name, bx+40, by+15, 18, nameColor);
+            // desc
+            DrawText(upgrades[idx].desc, bx+15, by+45, 13, {180,180,190,200});
+        } else {
+            DrawText("???", bx+boxW/2-15, by+boxH/2-10, 20, {80,70,100,180});
+        }
+    }
+
+    // bottom hint
+    if (upgradeCycleFinished) {
+        float hintAlpha = 0.7f + sinf(GetTime()*0.002f)*0.3f;
+        Color hintColor = {200,200,210,(unsigned char)(hintAlpha*255)};
+        const char* hint = "Clique ou pressione 1, 2, 3 para escolher";
+        DrawText(hint, SCREEN_W/2-MeasureText(hint, 15)/2, 360, 15, hintColor);
+    } else {
+        // cycling indicator
+        DrawText("SORTEANDO...", SCREEN_W/2-MeasureText("SORTEANDO...", 18)/2, 360, 18, {150,130,80,(unsigned char)(120 + (int)(sinf(GetTime()*0.006f)*60))});
+    }
 }
 
 // ----------------------------------------------------------------
@@ -1240,9 +1391,9 @@ int main() {
     initSounds();
     initUpgrades();
     
-    // UI state for upgrade selection
-    int lastUpgradeChoice1 = -1, lastUpgradeChoice2 = -1, lastUpgradeChoice3 = -1;
-    int upgradePickCount = 0;
+// UI state for upgrade selection
+        int lastUpgradeChoice1 = -1, lastUpgradeChoice2 = -1, lastUpgradeChoice3 = -1;
+        int upgradePickCount = 0;
     
     // dev panel
     bool devPanelOpen = false;
@@ -1263,6 +1414,19 @@ int main() {
                 // dev panel toggle
             }
         } else if (gamePhase == PHASE_LOBBY) {
+            // mouse selection for abilities
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                Vector2 mp = GetMousePosition();
+                int boxW = 200, boxH = 90, gap = 12;
+                int totalW = boxW*5 + gap*4;
+                int startX = SCREEN_W/2 - totalW/2;
+                int boxY = 150;
+                for (int i=0; i<5; i++) {
+                    int bx = startX + i*(boxW+gap);
+                    if (mp.x>=bx && mp.x<=bx+boxW && mp.y>=boxY && mp.y<=boxY+boxH)
+                        chosenAbility = (AbilityID)(i);
+                }
+            }
             if (IsKeyPressed(KEY_ONE)) chosenAbility = ABILITY_BULLMASTER;
             if (IsKeyPressed(KEY_TWO)) chosenAbility = ABILITY_WINDRUNNER;
             if (IsKeyPressed(KEY_THREE)) chosenAbility = ABILITY_PIERCING;
@@ -1295,19 +1459,9 @@ int main() {
                 
                 startNextWave();
             }
-        } else if (gamePhase == PHASE_GAME) {
+        } else if (gamePhase == PHASE_GAME || gamePhase == PHASE_UPGRADE) {
             if (IsKeyPressed(KEY_ESCAPE)) {
                 paused = !paused;
-            }
-            
-            // right click abilities
-            if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-                if (chosenAbility == ABILITY_OVERDRIVE && !overdriveActive && overdriveCooldownTimer<=0) {
-                    overdriveActive = true; overdriveTimer = 0;
-                }
-                if (chosenAbility == ABILITY_WINDRUNNER && !speedBoostActive && speedBoostCooldownTimer<=0) {
-                    speedBoostActive = true; speedBoostTimer = 0;
-                }
             }
             
             if (!paused) {
@@ -1321,22 +1475,29 @@ int main() {
                 if (IsKeyDown(KEY_A)) moveX = -playerSpeed*mul;
                 if (IsKeyDown(KEY_D)) moveX = playerSpeed*mul;
                 
-                // dash
-                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !playerDashing && playerStamina>=playerDashStaminaCost && playerDashCooldown<=0) {
-                    playerDashing = true;
-                    playerDashTimer = 0;
-                    playerStamina -= playerDashStaminaCost;
-                    playerDashCooldown = playerDashCooldownTime;
-                    // direction
-                    float dx=0, dy=0;
-                    if (IsKeyDown(KEY_W)) dy=-1; if (IsKeyDown(KEY_S)) dy=1;
-                    if (IsKeyDown(KEY_A)) dx=-1; if (IsKeyDown(KEY_D)) dx=1;
-                    if (dx!=0||dy!=0) { float l=hypotf(dx,dy); dx/=l; dy/=l; }
-                    else { dx=cosf(playerAngle); dy=sinf(playerAngle); }
-                    playerDashTimer = 0;
-                    // store dash direction
-                    playerDashCD = true;
-                }
+                // right click: ability first, then dash
+                if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+                    bool abilityUsed = false;
+                    if (chosenAbility == ABILITY_OVERDRIVE && !overdriveActive && overdriveCooldownTimer<=0) {
+                        overdriveActive = true; overdriveTimer = 0; abilityUsed = true;
+                    }
+                    if (!abilityUsed && chosenAbility == ABILITY_WINDRUNNER && speedBoostCooldownTimer<=0) {
+                        speedBoostActive = true; speedBoostTimer = 0; speedBoostCooldownTimer = 8000; abilityUsed = true;
+                    }
+                    if (!abilityUsed && !playerDashing && playerStamina>=playerDashStaminaCost && playerDashCooldown<=0) {
+                        playerDashing = true;
+                        playerDashTimer = 0;
+                        playerStamina -= playerDashStaminaCost;
+                        playerDashCooldown = playerDashCooldownTime;
+                        float dx=0, dy=0;
+                        if (IsKeyDown(KEY_W)) dy=-1; if (IsKeyDown(KEY_S)) dy=1;
+                        if (IsKeyDown(KEY_A)) dx=-1; if (IsKeyDown(KEY_D)) dx=1;
+                        if (dx!=0||dy!=0) { float l=hypotf(dx,dy); dx/=l; dy/=l; }
+                        else { dx=cosf(playerAngle); dy=sinf(playerAngle); }
+                        playerDashTimer = 0;
+                        playerDashCD = true;
+                    }
+                } // end right-click
                 if (playerDashing) {
                     // simplified dash
                     playerPos.x += moveX*5;
@@ -1361,19 +1522,14 @@ int main() {
                     playerShieldHp = std::min(playerShieldMax, playerShieldHp+0.05f);
                 
                 updateCamera();
-                updateOverdrive(dt);
-                updateSpeedBoost(dt);
-                updateMinions(dt);
-                updateBlackHoleAbility(dt);
                 tryFire(dt);
                 
                 // update bullets
                 for (int i=bullets.size()-1; i>=0; i--) {
                     auto& b = bullets[i];
-                    // trail
-                    if (graphicsMode!=GRAPHICS_LOW) {
-                        b.trail.push_back(b.pos);
-                        if (b.trail.size()>6) b.trail.erase(b.trail.begin());
+                    // trail (fixed-size circular)
+                    if (graphicsMode!=GRAPHICS_LOW && b.trailCount<6) {
+                        b.trail[b.trailCount++] = b.pos;
                     }
                     // homing
                     if (b.homing && chosenAbility==ABILITY_BULLMASTER) {
@@ -1457,18 +1613,64 @@ int main() {
                     playerXpNeeded = (int)(playerXpNeeded*1.35f);
                     paused = true;
                     gamePhase = PHASE_UPGRADE;
-                    // generate choices
+                    // generate final choices
                     lastUpgradeChoice1 = rand()%upgrades.size();
                     lastUpgradeChoice2 = rand()%upgrades.size();
                     lastUpgradeChoice3 = rand()%upgrades.size();
                     upgradePickCount = 0;
+                    upgradeCycleTimer = 0;
+                    upgradeCycleFinished = false;
+                    upgradeDisplay1 = lastUpgradeChoice1;
+                    upgradeDisplay2 = lastUpgradeChoice2;
+                    upgradeDisplay3 = lastUpgradeChoice3;
                 }
                 
                 updateWaveLogic(dt);
             }
             
+            // ability timers always update (even when paused)
+            updateOverdrive(dt);
+            updateSpeedBoost(dt);
+            updateMinions(dt);
+            updateBlackHoleAbility(dt);
+            
             // upgrade menu handled in input
             if (gamePhase == PHASE_UPGRADE) {
+                // cycling animation (visual only)
+                if (!upgradeCycleFinished) {
+                    upgradeCycleTimer += dt;
+                    if (upgradeCycleTimer > 2000) {
+                        upgradeCycleFinished = true;
+                        upgradeDisplay1 = lastUpgradeChoice1;
+                        upgradeDisplay2 = lastUpgradeChoice2;
+                        upgradeDisplay3 = lastUpgradeChoice3;
+                    } else {
+                        int cycleSpeed = 80;
+                        if (upgradeCycleTimer / cycleSpeed % 2 == 0) {
+                            int sz = upgrades.size();
+                            int a = rand()%sz, b = rand()%sz, c = rand()%sz;
+                            while (b == a) b = rand()%sz;
+                            while (c == a || c == b) c = rand()%sz;
+                            upgradeDisplay1 = a; upgradeDisplay2 = b; upgradeDisplay3 = c;
+                        }
+                    }
+                }
+                // mouse/keyboard selection always available
+                Vector2 mp = GetMousePosition();
+                int boxW = 320, boxH = 100;
+                int startX = SCREEN_W/2 - (boxW*3 + 30)/2;
+                int boxY = 210;
+                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                    for (int i=0; i<3; i++) {
+                        int bx = startX + i*(boxW+15);
+                        if (mp.x>=bx && mp.x<=bx+boxW && mp.y>=boxY && mp.y<=boxY+boxH) {
+                            int choice = i==0?lastUpgradeChoice1:(i==1?lastUpgradeChoice2:lastUpgradeChoice3);
+                            if (choice>=0) upgrades[choice].apply();
+                            gamePhase = PHASE_GAME; paused = false;
+                            break;
+                        }
+                    }
+                }
                 if (IsKeyPressed(KEY_ONE)) {
                     if (lastUpgradeChoice1>=0) upgrades[lastUpgradeChoice1].apply();
                     gamePhase = PHASE_GAME; paused = false;
@@ -1514,10 +1716,10 @@ int main() {
             for (auto& b : bullets) {
                 float sx=toScreenX(b.pos.x), sy=toScreenY(b.pos.y);
                 // trail
-                if (graphicsMode!=GRAPHICS_LOW) {
-                    for (int t=0; t<(int)b.trail.size(); t++) {
-                        float alpha = (t+1.0f)/b.trail.size()*0.3f;
-                        float rad = b.r*(t+1.0f)/b.trail.size()*0.6f;
+                if (graphicsMode!=GRAPHICS_LOW && b.trailCount>0) {
+                    for (int t=0; t<b.trailCount; t++) {
+                        float alpha = (t+1.0f)/b.trailCount*0.3f;
+                        float rad = b.r*(t+1.0f)/b.trailCount*0.6f;
                         Color tc = b.piercing?RED:(b.homing?COL_HOMING:COL_BULLET);
                         tc.a = (unsigned char)(alpha*255);
                         float tx=toScreenX(b.trail[t].x), ty=toScreenY(b.trail[t].y);
@@ -1553,8 +1755,13 @@ int main() {
                 float wp = 0.6f+sinf(GetTime()*0.02f)*0.3f;
                 DrawCircleLines(psx, psy, playerR+14+sinf(GetTime()*0.012f)*3, {200,255,200,(unsigned char)(wp*90)});
             }
+            // player glow
+            if (graphicsMode!=GRAPHICS_LOW) {
+                DrawCircle(psx, psy, playerR+6, {42,157,244,40});
+                DrawCircle(psx, psy, playerR+12, {42,157,244,15});
+            }
             DrawCircle(psx, psy, playerR, {42,157,244,255});
-            DrawCircle(psx-4, psx-4, playerR*0.45f, {155,232,255,255});
+            DrawCircle(psx-4, psy-4, playerR*0.45f, {155,232,255,255});
             
             // minions
             for (auto& m : minions) {
@@ -1592,9 +1799,26 @@ int main() {
             }
         } else if (gamePhase == PHASE_GAMEOVER) {
             ClearBackground({10,5,20,255});
-            DrawText("GAME OVER", SCREEN_W/2-MeasureText("GAME OVER", 50)/2, 200, 50, RED);
-            DrawText(TextFormat("Pontuacao: %d", score), SCREEN_W/2-MeasureText(TextFormat("Pontuacao: %d", score), 24)/2, 280, 24, WHITE);
-            DrawText("ESPACO para voltar ao menu", SCREEN_W/2-MeasureText("ESPACO para voltar ao menu", 18)/2, 350, 18, {180,180,180,255});
+            // particles
+            for (int i=0; i<15; i++) {
+                float px = (sinf(GetTime()*0.002f*(i%7+2)+i)*0.5f+0.5f)*SCREEN_W;
+                float py = (cosf(GetTime()*0.0015f*(i%5+3)+i*2)*0.5f+0.5f)*SCREEN_H;
+                DrawCircle(px, py, 2, {255,(unsigned char)(50+i*8),(unsigned char)(30+i*4),40});
+            }
+            float goPulse = 0.8f+sinf(GetTime()*0.003f)*0.2f;
+            Color goCol = {255,50,50,(unsigned char)(255*goPulse)};
+            int goW = MeasureText("GAME OVER", 50);
+            DrawText("GAME OVER", SCREEN_W/2-goW/2, 180, 50, goCol);
+            // underline
+            DrawRectangle(SCREEN_W/2-goW/2, 235, goW, 2, Color{255,50,50,100});
+            
+            Color scoreCol = COL_GOLD;
+            DrawText(TextFormat("Pontuacao: %d", score), SCREEN_W/2-MeasureText(TextFormat("Pontuacao: %d", score), 28)/2, 270, 28, scoreCol);
+            DrawText(TextFormat("Nivel alcancado: %d", playerLevel), SCREEN_W/2-MeasureText(TextFormat("Nivel alcancado: %d", playerLevel), 18)/2, 310, 18, {180,180,180,255});
+            
+            float ba = 0.4f+sinf(GetTime()*0.003f)*0.4f;
+            Color hintC = {180,180,200,(unsigned char)(ba*255)};
+            DrawText("ESPACO para voltar ao menu", SCREEN_W/2-MeasureText("ESPACO para voltar ao menu", 18)/2, 380, 18, hintC);
         }
         
         EndDrawing();
