@@ -185,6 +185,7 @@ static int playerR=20;
 static int idleTimer=0;
 static float screenShakeTime=0, screenShakeMag=0;
 static int damageFlashTimer=0;
+static int playerContactCooldown=0;
 
 static std::vector<Bullet> bullets;
 static std::vector<Bullet> enemyBullets;
@@ -340,6 +341,7 @@ public:
     int shootCooldown, shootTimer;
     float preferredDist;
     float shieldRadius, shieldAmount;
+    float shieldHp, shieldHpMax;
     Enemy* shieldLink;
     bool unbreakableShield;
     Enemy* shieldProducer;
@@ -359,7 +361,8 @@ public:
         chargePhase(false), chargeTimer(0), chargeTime(0), dashing(false), dashWarning(false),
         dashTimer(0), dashCooldown(0), dashDuration(0), dashDx(0), dashDy(0), dashWarningTimer(0),
         blinkTimer(0), blinkCooldown(0), blinkStage("moving"), laserAngle(0), chargeDuration(0),
-        shootCooldown(0), shootTimer(0), preferredDist(0), shieldRadius(0), shieldAmount(0) {
+        shootCooldown(0), shootTimer(0), preferredDist(0), shieldRadius(0), shieldAmount(0),
+        shieldHp(0), shieldHpMax(0) {
 
         float waveScale = 1 + (wave.number-1)*0.18f + score*0.0004f;
         float waveSpeedMul = 1 + (wave.number-1)*0.08f;
@@ -385,15 +388,21 @@ public:
                 dashCooldown=2200+rand()%600; dashTimer=dashCooldown*randf();
                 break;
             case ENEMY_MINIBOSS_SNIPER:
-                r=38; maxHp=700*waveScale; speed=0.6f; damage=55; name="ATIRADOR DE ELITE";
+                r=38; maxHp=1500*waveScale; speed=0.6f; damage=55; name="ATIRADOR DE ELITE";
+                shootCooldown=300; shootTimer=0;
+                shieldHpMax=600*waveScale; shieldHp=shieldHpMax;
                 chargeTime=2200; chargeTimer=0;
                 break;
             case ENEMY_MINIBOSS_BLINKER:
-                r=36; maxHp=600*waveScale; speed=1.4f; damage=20; name="DISRUPTOR FANTASMA";
+                r=36; maxHp=1300*waveScale; speed=1.4f; damage=20; name="DISRUPTOR FANTASMA";
+                shootCooldown=300; shootTimer=0;
+                shieldHpMax=500*waveScale; shieldHp=shieldHpMax;
                 blinkCooldown=3500; blinkTimer=0;
                 break;
             case ENEMY_MINIBOSS_DASHER:
-                r=32; maxHp=500*waveScale; speed=2.8f; damage=38; name="FURIA VELOZ";
+                r=32; maxHp=1200*waveScale; speed=2.8f; damage=38; name="FURIA VELOZ";
+                shootCooldown=300; shootTimer=0;
+                shieldHpMax=400*waveScale; shieldHp=shieldHpMax;
                 dashCooldown=2000; dashTimer=0;
                 break;
             default: break;
@@ -414,6 +423,15 @@ public:
             if (e!=this && e->type==ENEMY_SQUARE) {
                 float d = dist(e->pos, pos);
                 if (d < e->shieldRadius) finalDmg *= (1-e->shieldAmount);
+            }
+        }
+        if (shieldHp > 0) {
+            if (finalDmg <= shieldHp) {
+                shieldHp -= finalDmg;
+                finalDmg = 0;
+            } else {
+                finalDmg -= shieldHp;
+                shieldHp = 0;
             }
         }
         hp -= finalDmg;
@@ -493,6 +511,22 @@ public:
                 break;
             }
             case ENEMY_MINIBOSS_SNIPER: {
+                shootTimer += dt;
+                if (shootTimer >= shootCooldown) {
+                    shootTimer = 0;
+                    float baseAngle = atan2f(toPlayer.y, toPlayer.x);
+                    for (int i = 0; i < 3; i++) {
+                        float spread = (i - 1) * 0.12f;
+                        float a = baseAngle + spread;
+                        Bullet b;
+                        b.pos = pos; b.r = 5;
+                        b.vel = Vec2(cosf(a) * 7, sinf(a) * 7);
+                        b.speedMag = 7;
+                        b.damage = this->damage;
+                        enemyBullets.push_back(b);
+                    }
+                    spawnParticles(pos, {255,136,0,255}, 3, 15);
+                }
                 if (!chargePhase) {
                     moveX = toPlayer.x/d*speed; moveY = toPlayer.y/d*speed;
                     chargeTimer += dt;
@@ -512,6 +546,22 @@ public:
                 break;
             }
             case ENEMY_MINIBOSS_BLINKER: {
+                shootTimer += dt;
+                if (shootTimer >= shootCooldown) {
+                    shootTimer = 0;
+                    float baseAngle = atan2f(toPlayer.y, toPlayer.x);
+                    for (int i = 0; i < 3; i++) {
+                        float spread = (i - 1) * 0.12f;
+                        float a = baseAngle + spread;
+                        Bullet b;
+                        b.pos = pos; b.r = 5;
+                        b.vel = Vec2(cosf(a) * 7, sinf(a) * 7);
+                        b.speedMag = 7;
+                        b.damage = this->damage;
+                        enemyBullets.push_back(b);
+                    }
+                    spawnParticles(pos, {200,80,255,255}, 3, 15);
+                }
                 if (strcmp(blinkStage,"moving")==0) {
                     moveX = toPlayer.x/d*speed; moveY = toPlayer.y/d*speed;
                     blinkTimer += dt;
@@ -539,6 +589,22 @@ public:
                 break;
             }
             case ENEMY_MINIBOSS_DASHER: {
+                shootTimer += dt;
+                if (shootTimer >= shootCooldown) {
+                    shootTimer = 0;
+                    float baseAngle = atan2f(toPlayer.y, toPlayer.x);
+                    for (int i = 0; i < 3; i++) {
+                        float spread = (i - 1) * 0.12f;
+                        float a = baseAngle + spread;
+                        Bullet b;
+                        b.pos = pos; b.r = 5;
+                        b.vel = Vec2(cosf(a) * 7, sinf(a) * 7);
+                        b.speedMag = 7;
+                        b.damage = this->damage;
+                        enemyBullets.push_back(b);
+                    }
+                    spawnParticles(pos, {255,102,0,255}, 3, 15);
+                }
                 if (!dashing) {
                     moveX = toPlayer.x/d*speed; moveY = toPlayer.y/d*speed;
                     dashTimer += dt;
@@ -602,11 +668,15 @@ public:
         DrawCircle(sx, sy, r, color);
         
         float bw = r*2, bh = 5;
+        if (shieldHpMax > 0) {
+            DrawRectangle(sx-r, sy-r-20, bw, 4, {20,40,80,255});
+            DrawRectangle(sx-r, sy-r-20, bw*(shieldHp/shieldHpMax), 4, COL_SHIELD);
+        }
         DrawRectangle(sx-r, sy-r-14, bw, bh, {58,10,10,255});
         DrawRectangle(sx-r, sy-r-14, bw*(hp/maxHp), bh, {77,255,122,255});
         
         if (name) {
-            DrawText(name, sx-MeasureText(name,13)/2, sy-r-28, 13, WHITE);
+            DrawText(name, sx-MeasureText(name,13)/2, sy-r-30, 13, WHITE);
         }
     }
 };
@@ -772,9 +842,7 @@ static void updateWaveLogic(int dt) {
         } else if (enemies.empty() && !wave.waitingNextWave) {
             wave.waitingNextWave = true;
             wave.number++;
-            if (wave.number <= TOTAL_WAVES) {
-                startNextWave();
-            }
+            startNextWave();
         }
     } else if (wave.phase == WAVE_MINIBOSS) {
         if (enemies.empty() && !wave.waitingNextWave) {
@@ -1448,16 +1516,17 @@ static void resetGameState() {
     playerShieldHp = playerShieldMax;
     playerStamina = playerMaxStamina;
     playerXp = 0; playerLevel = 1; playerXpNeeded = 30;
-    playerBullets = 1; playerDashCooldown = 0;
+    playerDashCooldown = 0; playerContactCooldown = 0;
+    if (!devModeUnlocked) { playerBullets = 1; }
     overdriveActive = false; speedBoostActive = false; laserActive = false;
     overdriveTimer = 0; overdriveCooldownTimer = 0;
     speedBoostTimer = 0; speedBoostCooldownTimer = 0;
     laserTimer = 0; laserCooldownTimer = 0;
     piercingNext = false; shotCount = 0; bhTimer = 0;
+    for (auto& e : enemies) delete e;
     bullets.clear(); enemyBullets.clear(); particles.clear();
     shockwaves.clear(); bombs.clear(); blackholes.clear();
     enemies.clear(); minions.clear(); score = 0; playerTrailCount = 0;
-    if (devModeUnlocked) applyDevAttributes();
     applyAbilityPassives();
     wave.number = 0; wave.phase = WAVE_NORMAL;
     wave.minibossesDefeated = 0; wave.waitingNextWave = false;
@@ -1539,7 +1608,8 @@ int main() {
                 playerShieldHp = playerShieldMax;
                 playerStamina = playerMaxStamina;
                 playerXp = 0; playerLevel = 1; playerXpNeeded = 30;
-                playerBullets = 1; playerDashCooldown = 0;
+                playerDashCooldown = 0; playerContactCooldown = 0;
+                if (!devModeUnlocked) { playerBullets = 1; }
                 overdriveActive = false; speedBoostActive = false; laserActive = false;
                 overdriveTimer = 0; overdriveCooldownTimer = 0;
                 speedBoostTimer = 0; speedBoostCooldownTimer = 0;
@@ -1549,11 +1619,6 @@ int main() {
                 shockwaves.clear(); bombs.clear(); blackholes.clear();
                 enemies.clear(); minions.clear(); score = 0; playerTrailCount = 0;
                 
-                if (devModeUnlocked) {
-                    applyDevAttributes();
-                    wave.number = devWaveNumber - 1;
-                    wave.minibossesDefeated = 0;
-                }
                 applyAbilityPassives();
                 
                 wave.number = 0; wave.phase = WAVE_NORMAL;
@@ -1571,6 +1636,7 @@ int main() {
                         wave.announcementTimer = 2500;
                         applyBiomeForCurrentWave();
                     }
+                    for (auto& e : enemies) delete e;
                     enemies.clear();
                 }
             }
@@ -1626,6 +1692,7 @@ int main() {
                                             wave.announcementTimer = 2500;
                                             applyBiomeForCurrentWave();
                                         }
+                                        for (auto& e : enemies) delete e;
                                         enemies.clear();
                                     }
                                 } else if (i==2) { // configuracoes
@@ -1657,7 +1724,6 @@ int main() {
                             wave.announcementTimer = 2500;
                             applyBiomeForCurrentWave();
                         }
-                        enemies.clear();
                     }
                 }
             }
@@ -1800,7 +1866,32 @@ int main() {
                         enemyBullets.erase(enemyBullets.begin()+i);
                 }
                 
+                if (playerContactCooldown > 0) playerContactCooldown -= dt;
                 for (auto& e : enemies) e->update(dt);
+                if (playerContactCooldown <= 0) {
+                    for (auto& e : enemies) {
+                        float d = dist(playerPos, e->pos);
+                        if (d < playerR + e->r) {
+                            float contactDmg = e->damage * 0.3f;
+                            if (playerShieldHp > 0) {
+                                if (contactDmg <= playerShieldHp) {
+                                    playerShieldHp -= contactDmg;
+                                } else {
+                                    contactDmg -= playerShieldHp;
+                                    playerShieldHp = 0;
+                                    playerHp -= contactDmg;
+                                }
+                            } else {
+                                playerHp -= contactDmg;
+                            }
+                            spawnParticles(playerPos, {255,50,50,255}, 6, 20);
+                            playerContactCooldown = 500;
+                            damageFlashTimer = 8;
+                            if (playerHp <= 0) { playerHp=0; gamePhase=PHASE_GAMEOVER; }
+                            break;
+                        }
+                    }
+                }
                 
                 for (int i=particles.size()-1; i>=0; i--) {
                     particles[i].pos = particles[i].pos + particles[i].vel;
@@ -1846,7 +1937,7 @@ int main() {
             updateBlackHoleAbility(dt);
             updateLaser(dt, paused);
             
-            if (gamePhase == PHASE_UPGRADE) {)
+            if (gamePhase == PHASE_UPGRADE) {
                 if (!upgradeCycleFinished) {
                     upgradeCycleTimer += dt;
                     if (upgradeCycleTimer > 2000) {
