@@ -1,4 +1,3 @@
-// Edge Extrusion — C++ / Raylib port
 // Compile: g++ edge_extrusion.cpp -o edge_extrusion -lraylib -lm -lpthread -ldl -lrt
 
 #include "raylib.h"
@@ -11,9 +10,6 @@
 #include <algorithm>
 #include <map>
 
-// ----------------------------------------------------------------
-// CONSTANTES
-// ----------------------------------------------------------------
 const int SCREEN_W = 1280;
 const int SCREEN_H = 720;
 const int WORLD_W = 2600;
@@ -30,9 +26,6 @@ const float BOSS_MAX_HP = 400000.0f;
 const float BOSS_DEBUFF_THRESHOLD = 100000.0f;
 const char* BOSS_NAME = "REI CARMESIM, O DEVORADOR";
 
-// ----------------------------------------------------------------
-// AUXILIAR
-// ----------------------------------------------------------------
 static inline float randf() { return (float)rand() / (float)RAND_MAX; }
 static inline float randRange(float a, float b) { return a + randf() * (b - a); }
 static inline float lerp(float a, float b, float t) { return a + (b-a)*t; }
@@ -57,9 +50,6 @@ static float dist(Vec2 a, Vec2 b) {
     return sqrtf((a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y));
 }
 
-// ----------------------------------------------------------------
-// CORES DO JOGO
-// ----------------------------------------------------------------
 static Color hexToCol(unsigned int h) {
     return Color{(unsigned char)((h>>16)&0xFF),(unsigned char)((h>>8)&0xFF),(unsigned char)(h&0xFF),255};
 }
@@ -73,9 +63,6 @@ static const Color COL_BULLET   = hexToCol(0xffd700);
 static const Color COL_HOMING   = hexToCol(0xffd24d);
 static const Color COL_EXPLOSIVE= hexToCol(0x7a5aff);
 
-// ----------------------------------------------------------------
-// ENUMS / TYPES
-// ----------------------------------------------------------------
 enum EnemyType {
     ENEMY_BALL, ENEMY_TRIANGLE, ENEMY_SQUARE, ENEMY_SNIPER_COMMON,
     ENEMY_RUNNER, ENEMY_MINIBOSS_SNIPER, ENEMY_MINIBOSS_BLINKER,
@@ -83,15 +70,13 @@ enum EnemyType {
 };
 enum AbilityID {
     ABILITY_NONE=-1, ABILITY_BULLMASTER, ABILITY_WINDRUNNER,
-    ABILITY_PIERCING, ABILITY_BLACKHOLE, ABILITY_OVERDRIVE
+    ABILITY_PIERCING, ABILITY_BLACKHOLE, ABILITY_OVERDRIVE, ABILITY_LASER
 };
 enum GamePhase { PHASE_MENU, PHASE_LOBBY, PHASE_GAME, PHASE_UPGRADE, PHASE_GAMEOVER };
 enum WavePhase { WAVE_NORMAL, WAVE_MINIBOSS, WAVE_BOSS_INTRO, WAVE_BOSS, WAVE_CLEARED };
 enum GraphicsMode { GRAPHICS_MAX, GRAPHICS_LOW };
+enum ControlMode { CONTROL_WASD, CONTROL_MOUSE };
 
-// ----------------------------------------------------------------
-// ESTRUTURAS
-// ----------------------------------------------------------------
 struct Particle {
     Vec2 pos, vel;
     int life;
@@ -101,14 +86,14 @@ struct Particle {
 struct Bullet {
     Vec2 pos, vel;
     float r, speedMag, damage;
-    bool homing, piercing;
+    bool homing, piercing, tethered;
     int piercingHits, piercingMaxHits;
     Vec2 trail[6];
     int trailCount;
     bool active;
     
     Bullet() : r(5), speedMag(0), damage(1), homing(false), piercing(false),
-               piercingHits(0), piercingMaxHits(2), active(true), trailCount(0) {}
+               tethered(false), piercingHits(0), piercingMaxHits(2), active(true), trailCount(0) {}
 };
 
 struct Minion {
@@ -167,9 +152,6 @@ Biome biomes[3] = {
      hexToCol(0x3a1518), hexToCol(0xb03a3a), hexToCol(0xff5a5a), 2, hexToCol(0xff4400), 4}
 };
 
-// ----------------------------------------------------------------
-// UPGRADES
-// ----------------------------------------------------------------
 struct Upgrade {
     const char* name;
     const char* desc;
@@ -193,6 +175,9 @@ static bool speedBoostActive=false;
 static int speedBoostTimer=0, speedBoostDuration=2000, speedBoostCooldown=8000, speedBoostCooldownTimer=0;
 static bool piercingNext=false;
 static int shotCount=0, bhTimer=0;
+static bool laserActive=false;
+static int laserTimer=0, laserDuration=3000, laserCooldown=5000, laserCooldownTimer=0;
+static float laserDamage=100, laserWidth=4;
 static bool atropelamento=false;
 static Vec2 playerPos(WORLD_W/2, WORLD_H/2);
 static float playerAngle=0;
@@ -208,12 +193,12 @@ static std::vector<Shockwave> shockwaves;
 static std::vector<Bomb> bombs;
 static std::vector<BlackHole> blackholes;
 static std::vector<Minion> minions;
+static Vec2 playerTrail[20];
+static int playerTrailCount = 0;
 
 static GraphicsMode graphicsMode = GRAPHICS_MAX;
+static ControlMode controlMode = CONTROL_WASD;
 
-// ----------------------------------------------------------------
-// SOUND (procedural simples com Wave sintetica)
-// ----------------------------------------------------------------
 static Sound soundShoot, soundHit, soundEnemyDie, soundPlayerHit, soundLevelUp;
 static Sound soundDash, soundWaveStart, soundExplosion, soundSniperFire;
 static std::map<std::string, Sound> sounds;
@@ -270,9 +255,6 @@ static void playSoundName(const char* name) {
     if (sounds.count(name)) PlaySound(sounds[name]);
 }
 
-// ----------------------------------------------------------------
-// PARTICLES
-// ----------------------------------------------------------------
 static void spawnParticle(Vec2 pos, Color col, int life=40) {
     if (graphicsMode==GRAPHICS_LOW && particles.size()>60) return;
     Particle p;
@@ -295,9 +277,6 @@ static void spawnParticles(Vec2 pos, Color col, int count=8, int life=40) {
     }
 }
 
-// ----------------------------------------------------------------
-// COLLISION
-// ----------------------------------------------------------------
 static bool circleRect(Vec2 c, float cr, float rx, float ry, float rw, float rh) {
     float nx = std::max(rx, std::min(c.x, rx+rw));
     float ny = std::max(ry, std::min(c.y, ry+rh));
@@ -305,14 +284,10 @@ static bool circleRect(Vec2 c, float cr, float rx, float ry, float rw, float rh)
     return (dx*dx+dy*dy) < (cr*cr);
 }
 
-// upgrade menu state
 static int upgradeCycleTimer = 0;
 static bool upgradeCycleFinished = false;
 static int upgradeDisplay1 = -1, upgradeDisplay2 = -1, upgradeDisplay3 = -1;
 
-// ----------------------------------------------------------------
-// CAMERA / SCREEN
-// ----------------------------------------------------------------
 static Vec2 camera(0,0);
 static void updateCamera() {
     camera.x = playerPos.x - SCREEN_W/2;
@@ -323,9 +298,6 @@ static void updateCamera() {
 static float toScreenX(float wx) { return wx - camera.x; }
 static float toScreenY(float wy) { return wy - camera.y; }
 
-// ----------------------------------------------------------------
-// GAME STATE
-// ----------------------------------------------------------------
 static AbilityID chosenAbility = ABILITY_NONE;
 static int currentBiomeIndex = 0;
 static std::vector<Obstacle> obstacles;
@@ -347,12 +319,15 @@ struct WaveState {
     int announcementTimer = 0;
 } wave;
 
+static bool devModeUnlocked = false;
+static int devWaveNumber = 1;
+static bool devBossEnabled = true;
+static char menuInput[32] = "";
+static int menuInputLen = 0;
+
 static bool gameStarted = false, paused = false;
 static GamePhase gamePhase = PHASE_MENU;
 
-// ----------------------------------------------------------------
-// ENEMY CLASS
-// ----------------------------------------------------------------
 class Enemy {
 public:
     Vec2 pos;
@@ -362,7 +337,6 @@ public:
     float angle, pulsePhase;
     int flashTime;
     
-    // specific
     int shootCooldown, shootTimer;
     float preferredDist;
     float shieldRadius, shieldAmount;
@@ -375,7 +349,6 @@ public:
     int dashTimer, dashCooldown, dashDuration;
     float dashDx, dashDy, dashWarningTimer;
     
-    // miniboss
     int blinkTimer, blinkCooldown;
     const char* blinkStage;
     float laserAngle;
@@ -586,7 +559,6 @@ public:
             default: break;
         }
         
-        // slow from squares
         if (type!=ENEMY_SQUARE) {
             float slowFactor=1;
             for (auto& other : enemies) {
@@ -622,7 +594,6 @@ public:
         }
         if (flashTime>0) color = WHITE;
         
-        // glow
         if (graphicsMode!=GRAPHICS_LOW) {
             Color glow = color; glow.a = 80;
             DrawCircle(sx, sy, r+6, glow);
@@ -630,7 +601,6 @@ public:
         
         DrawCircle(sx, sy, r, color);
         
-        // barra de vida
         float bw = r*2, bh = 5;
         DrawRectangle(sx-r, sy-r-14, bw, bh, {58,10,10,255});
         DrawRectangle(sx-r, sy-r-14, bw*(hp/maxHp), bh, {77,255,122,255});
@@ -641,9 +611,6 @@ public:
     }
 };
 
-// ----------------------------------------------------------------
-// BOSS
-// ----------------------------------------------------------------
 enum BossPhase { BP_IDLE, BP_COOLDOWN, BP_LASER360, BP_SUPERLASER, BP_TELEPORTBOMB, BP_QUANTUMLASER };
 struct BossState {
     Enemy* obj = nullptr;
@@ -678,9 +645,7 @@ public:
         boss.damageAccumulated += finalDmg;
         if (boss.damageAccumulated >= BOSS_DEBUFF_THRESHOLD) {
             boss.damageAccumulated -= BOSS_DEBUFF_THRESHOLD;
-            // apply debuff
         }
-        // check phase transition
         float hpPct = hp/maxHp;
         int targetIdx = 0;
         if (hpPct<=0.25f) targetIdx=3;
@@ -696,7 +661,6 @@ public:
     void update(int dt) override {
         angle += 0.015f;
         if (flashTime>0) flashTime--;
-        // movement
         Vec2 toPlayer = playerPos - pos;
         float d = toPlayer.len();
         if (d<1) d=1;
@@ -718,21 +682,16 @@ public:
         DrawCircle(sx, sy, eyeSize, {255,34,102,255});
         DrawCircle(sx-4, sy-4, eyeSize*0.35f, {255,255,255,128});
         
-        // phase indicator
         for (int i=0; i<4; i++) {
             Color c = i<=boss.bossPhaseIndex ? (Color){255,77,255,255} : (Color){255,255,255,38};
             DrawRing({sx,sy}, r+10, r+14, 90*i+5, 90*(i+1)-5, 0, c);
         }
-        // hp bar
         float bw = 200, bh = 12;
         DrawRectangle(sx-bw/2, sy-r-20, bw, bh, {20,20,20,255});
         DrawRectangle(sx-bw/2, sy-r-20, bw*(hp/maxHp), bh, {169,0,255,255});
     }
 };
 
-// ----------------------------------------------------------------
-// BIOME / OBSTACLES
-// ----------------------------------------------------------------
 static int biomeForWave(int waveNum) {
     return std::min(2, (waveNum-1)/5);
 }
@@ -770,9 +729,6 @@ static void applyBiomeForCurrentWave() {
     }
 }
 
-// ----------------------------------------------------------------
-// SPAWN
-// ----------------------------------------------------------------
 static Vec2 spawnPosOffscreen() {
     int side = rand()%4;
     if (side==0) return Vec2(randf()*WORLD_W, -40);
@@ -802,9 +758,6 @@ static void spawnMiniboss() {
     enemies.push_back(new Enemy(p, t));
 }
 
-// ----------------------------------------------------------------
-// WAVE LOGIC
-// ----------------------------------------------------------------
 static void startNextWave();
 
 static void updateWaveLogic(int dt) {
@@ -855,25 +808,27 @@ static void startNextWave() {
         spawnMiniboss();
     } else {
         // boss fight
-        wave.phase = WAVE_BOSS_INTRO;
-        // create boss
-        Boss* b = new Boss(Vec2(playerPos.x, playerPos.y-400));
-        boss.obj = b;
-        boss.bossPhaseIndex = 0;
-        boss.damageAccumulated = 0;
-        boss.weaknessWindow = 0;
-        boss.shockwaveTimer = 0;
-        boss.teleport.stage = "none";
-        enemies.push_back(b);
-        wave.phase = WAVE_BOSS;
-        boss.phase = BP_COOLDOWN;
-        boss.attackCooldown = 900;
+        if (devBossEnabled) {
+            wave.phase = WAVE_BOSS_INTRO;
+            // create boss
+            Boss* b = new Boss(Vec2(playerPos.x, playerPos.y-400));
+            boss.obj = b;
+            boss.bossPhaseIndex = 0;
+            boss.damageAccumulated = 0;
+            boss.weaknessWindow = 0;
+            boss.shockwaveTimer = 0;
+            boss.teleport.stage = "none";
+            enemies.push_back(b);
+            wave.phase = WAVE_BOSS;
+            boss.phase = BP_COOLDOWN;
+            boss.attackCooldown = 900;
+        } else {
+            wave.phase = WAVE_CLEARED;
+            wave.waitingNextWave = false;
+        }
     }
 }
 
-// ----------------------------------------------------------------
-// BLACK HOLE
-// ----------------------------------------------------------------
 static void updateBlackHoleAbility(int dt) {
     if (chosenAbility != ABILITY_BLACKHOLE) return;
     for (int i=blackholes.size()-1; i>=0; i--) {
@@ -905,9 +860,6 @@ static void updateBlackHoleAbility(int dt) {
     }
 }
 
-// ----------------------------------------------------------------
-// OVERDRIVE
-// ----------------------------------------------------------------
 static void updateOverdrive(int dt) {
     if (chosenAbility != ABILITY_OVERDRIVE) return;
     if (overdriveActive) {
@@ -924,9 +876,6 @@ static void updateOverdrive(int dt) {
     }
 }
 
-// ----------------------------------------------------------------
-// SPEED BOOST (Windrunner)
-// ----------------------------------------------------------------
 static void updateSpeedBoost(int dt) {
     if (chosenAbility != ABILITY_WINDRUNNER) return;
     if (speedBoostActive) {
@@ -943,9 +892,55 @@ static void updateSpeedBoost(int dt) {
     }
 }
 
-// ----------------------------------------------------------------
-// MINIONS
-// ----------------------------------------------------------------
+static void updateLaser(int dt, bool isPaused) {
+    if (chosenAbility != ABILITY_LASER) return;
+    // auto-activate when ready
+    if (!laserActive && laserCooldownTimer<=0) {
+        laserActive = true;
+        laserTimer = 0;
+    }
+    if (laserActive) {
+        laserTimer += dt;
+        if (laserTimer >= laserDuration) {
+            laserActive = false;
+            laserTimer = 0;
+            laserCooldownTimer = laserCooldown;
+        } else if (!isPaused) {
+            Vector2 mp = GetMousePosition();
+            Vec2 target(mp.x + camera.x, mp.y + camera.y);
+            Vec2 dir = (target - playerPos).normalized();
+            float beamLen = (target - playerPos).len();
+            float dmgThisFrame = laserDamage * dt/1000.0f;
+            auto damageBeam = [&](Vec2 d) {
+                for (int i=enemies.size()-1; i>=0; i--) {
+                    auto& e = enemies[i];
+                    Vec2 toEnemy = e->pos - playerPos;
+                    float t = (toEnemy.x * d.x + toEnemy.y * d.y);
+                    if (t < 0 || t > beamLen) continue;
+                    Vec2 closest(playerPos.x + d.x*t, playerPos.y + d.y*t);
+                    float dist2 = (e->pos - closest).len();
+                    if (dist2 < e->r + laserWidth*3) {
+                        e->takeDamage(dmgThisFrame);
+                        spawnParticle(e->pos, {255,80,80,255});
+                        if (e->hp <= 0) {
+                            score += 1;
+                            playerXp += 8;
+                            spawnParticles(e->pos, YELLOW, 10);
+                            delete e;
+                            enemies.erase(enemies.begin()+i);
+                        }
+                    }
+                }
+            };
+            damageBeam(dir);
+        }
+    }
+    if (laserCooldownTimer > 0) {
+        laserCooldownTimer -= dt;
+        if (laserCooldownTimer < 0) laserCooldownTimer = 0;
+    }
+}
+
 static void updateMinions(int dt) {
     for (auto& m : minions) {
         m.angle += m.orbitSpeed;
@@ -971,6 +966,7 @@ static void updateMinions(int dt) {
                 b.vel = dir * playerBulletSpeed;
                 b.speedMag = playerBulletSpeed;
                 b.r = 4;
+                b.tethered = (m.shootCooldown <= 100);
                 bullets.push_back(b);
                 spawnParticle(targetPos, {255,102,255,255}, 3);
             }
@@ -978,10 +974,8 @@ static void updateMinions(int dt) {
     }
 }
 
-// ----------------------------------------------------------------
-// PLAYER COMBAT
-// ----------------------------------------------------------------
 static void tryFire(int dt) {
+    if (chosenAbility == ABILITY_LASER) return;
     static int fireTimer = 0;
     int rate = playerFireRate;
     if (chosenAbility==ABILITY_OVERDRIVE && overdriveActive) rate = playerFireRate/3;
@@ -1020,12 +1014,10 @@ static void tryFire(int dt) {
     playSoundName("shoot");
 }
 
-// ----------------------------------------------------------------
-// UPGRADES
-// ----------------------------------------------------------------
 std::vector<Upgrade> upgrades;
 std::vector<Upgrade> rareUpgrades;
-static bool devModeUnlocked = false;
+std::vector<Upgrade> laserUpgrades;
+std::vector<Upgrade>* upgradePool = &upgrades;
 
 static void initUpgrades() {
     upgrades = {
@@ -1057,13 +1049,21 @@ static void initUpgrades() {
             m.shootTimer=0; m.shootCooldown=800;
             m.damage=playerDamage*0.6f; m.color={255,102,255,255};
             minions.push_back(m);
+        }},
+        {"Mini-Tethered", "Mini-seguidor de tiro rapido com linha.", []{
+            Minion m; m.angle=randf()*M_PI*2; m.orbitDist=75; m.orbitSpeed=0.04f;
+            m.shootTimer=0; m.shootCooldown=100;
+            m.damage=playerDamage*0.3f; m.color={100,255,200,255};
+            minions.push_back(m);
         }}
+    };
+    laserUpgrades = {
+        {"+10 Dano Laser", "Aumenta o dano do laser.", []{ laserDamage+=10; }},
+        {"+0.5s Duracao Laser", "Laser dura mais tempo.", []{ laserDuration+=500; }},
     };
 }
 
 static void applyDevAttributes() {
-    // Read from dev panel sliders (global vars)
-    // For simplicity, dev mode just boosts stats
     if (devModeUnlocked) {
         playerMaxHp = 500;
         playerHp = 500;
@@ -1085,14 +1085,10 @@ static void applyAbilityPassives() {
     }
 }
 
-// ----------------------------------------------------------------
-// DRAW HELPERS
-// ----------------------------------------------------------------
 static void drawWorld() {
     const Biome& b = biomes[currentBiomeIndex];
     ClearBackground(b.bg);
     
-    // grid
     int gs = 80;
     float startX = -fmodf(camera.x, gs);
     float startY = -fmodf(camera.y, gs);
@@ -1101,8 +1097,7 @@ static void drawWorld() {
         DrawLine(x, 0, x, SCREEN_H, gridCol);
     for (float y=startY; y<SCREEN_H; y+=gs)
         DrawLine(0, y, SCREEN_W, y, gridCol);
-    
-    // decorations
+
     if (graphicsMode != GRAPHICS_LOW) {
         for (auto& d : decorations) {
             float sx=toScreenX(d.x), sy=toScreenY(d.y);
@@ -1111,7 +1106,6 @@ static void drawWorld() {
         }
     }
     
-    // unique elements
     if (graphicsMode != GRAPHICS_LOW) {
         for (auto& u : uniqueElements) {
             float sx=toScreenX(u.pos.x), sy=toScreenY(u.pos.y);
@@ -1120,7 +1114,6 @@ static void drawWorld() {
         }
     }
     
-    // obstacles
     for (auto& o : obstacles) {
         float sx=toScreenX(o.x), sy=toScreenY(o.y);
         if (sx>SCREEN_W||sy>SCREEN_H||sx+o.w<0||sy+o.h<0) continue;
@@ -1134,22 +1127,18 @@ static void drawWorld() {
 }
 
 static void drawHUD() {
-    // HP bar
     DrawText(TextFormat("Nivel %d | XP: %d/%d", playerLevel, playerXp, playerXpNeeded), 12, 10, 16, WHITE);
 
-    // HP bar background with gradient effect
     DrawRectangle(12, 30, 230, 20, {42,8,8,255});
     float hpPct = playerHp/playerMaxHp;
     Color hpCol = hpPct > 0.5f ? COL_HP : Color{255,180,0,(unsigned char)(hpPct>0.25f?255:180)};
     if (hpPct <= 0.25f) hpCol = {255,60,60,255};
     DrawRectangle(12, 30, 230*hpPct, 20, hpCol);
-    // inner highlight
     if (hpPct > 0.05f) DrawRectangle(14, 32, 226*hpPct-4, 5, {255,255,255,25});
     DrawRectangleLines(12, 30, 230, 20, {110,20,20,255});
     DrawText(TextFormat("%.0f/%.0f", playerHp, playerMaxHp), 130 - MeasureText(TextFormat("%.0f/%.0f", playerHp, playerMaxHp), 12)/2, 34, 12, WHITE);
     
     int hudY = 55;
-    // shield bar
     if (playerShieldMax > 0) {
         DrawRectangle(12, hudY, 230, 10, {40,80,120,76});
         DrawRectangle(12, hudY, 230*(playerShieldHp/playerShieldMax), 10, COL_SHIELD);
@@ -1160,14 +1149,12 @@ static void drawHUD() {
     DrawText(TextFormat("Pontos: %d", score), 12, hudY, 14, WHITE);
     hudY += 18;
     
-    // stamina bar
     DrawText("ST", 12, hudY, 10, {180,180,200,200});
     DrawRectangle(26, hudY, 50, 8, {0,0,0,128});
     DrawRectangle(26, hudY, 50*(playerStamina/playerMaxStamina), 8, COL_STAMINA);
     DrawRectangleLines(26, hudY, 50, 8, {80,120,80,100});
     hudY += 14;
     
-    // wave info on top-right with background
     const char* waveText = "";
     const char* biomeName = biomes[currentBiomeIndex].name;
     Color waveColor = WHITE;
@@ -1192,7 +1179,6 @@ static void drawHUD() {
     DrawRectangle(waveX-4, 8, tw+8, 22, {0,0,0,100});
     DrawText(waveText, waveX, 12, 14, waveColor);
     
-    // ability badge bottom-right
     const char* abText = "";
     Color abColor = {200,200,200,255};
     switch(chosenAbility) {
@@ -1211,6 +1197,12 @@ static void drawHUD() {
             else { abText = "Rajada Explosiva — PRONTO"; abColor={255,255,100,255}; }
             break;
         }
+        case ABILITY_LASER: {
+            if (laserActive) { abText = TextFormat("Laser %d%%", (int)(100-100*laserTimer/laserDuration)); abColor={255,50,50,255}; }
+            else if (laserCooldownTimer>0) { abText = TextFormat("Recarga %ds", laserCooldownTimer/1000+1); abColor={200,80,80,200}; }
+            else { abText = "Laser — PRONTO"; abColor={255,100,100,255}; }
+            break;
+        }
         default: break;
     }
     if (abText[0]) {
@@ -1218,31 +1210,55 @@ static void drawHUD() {
         int abX = SCREEN_W - abW - 15;
         DrawRectangle(abX-4, SCREEN_H-30, abW+8, 22, {0,0,0,120});
         DrawText(abText, abX, SCREEN_H-27, 13, abColor);
+        // overdrive duration/cooldown bar
+        if (chosenAbility == ABILITY_OVERDRIVE) {
+            int barW = abW+8, barH = 4;
+            int barX = abX-4, barY = SCREEN_H-8;
+            if (overdriveActive) {
+                float pct = 1.0f - (float)overdriveTimer/overdriveDuration;
+                DrawRectangle(barX, barY, barW, barH, {60,30,30,180});
+                DrawRectangle(barX, barY, (int)(barW*pct), barH, {255,255,80,255});
+            } else if (overdriveCooldownTimer > 0) {
+                float pct = 1.0f - (float)overdriveCooldownTimer/overdriveCooldown;
+                DrawRectangle(barX, barY, barW, barH, {30,30,30,180});
+                DrawRectangle(barX, barY, (int)(barW*pct), barH, {100,100,60,200});
+            }
+        }
+        if (chosenAbility == ABILITY_LASER) {
+            int barW = abW+8, barH = 4;
+            int barX = abX-4, barY = SCREEN_H-8;
+            if (laserActive) {
+                float pct = 1.0f - (float)laserTimer/laserDuration;
+                DrawRectangle(barX, barY, barW, barH, {60,20,20,180});
+                DrawRectangle(barX, barY, (int)(barW*pct), barH, {255,50,50,255});
+            } else if (laserCooldownTimer > 0) {
+                float pct = 1.0f - (float)laserCooldownTimer/laserCooldown;
+                DrawRectangle(barX, barY, barW, barH, {30,30,30,180});
+                DrawRectangle(barX, barY, (int)(barW*pct), barH, {100,50,50,200});
+            }
+        }
     }
 }
 
 static void drawMenu() {
     ClearBackground({10,5,20,255});
-    // animated background particles
     for (int i=0; i<30; i++) {
         float px = (sinf(GetTime()*0.001f*(i%7+2)+i)*0.5f+0.5f) * SCREEN_W;
         float py = (cosf(GetTime()*0.0008f*(i%5+3)+i*2)*0.5f+0.5f) * SCREEN_H;
         DrawCircle(px, py, 2, {(unsigned char)(100+i*5),(unsigned char)(60+i*3),(unsigned char)(150+i*4),40});
     }
-    // title with glow
     float tp = 0.9f + sinf(GetTime()*0.002f)*0.1f;
     Color tcol = COL_GOLD; tcol.a = (unsigned char)(255*tp);
     int tw = MeasureText("EDGE EXTRUSION", 50);
     DrawText("EDGE EXTRUSION", SCREEN_W/2-tw/2, 150, 50, tcol);
-    // subtitle glow
+
     Color subCol = {180,180,200,(unsigned char)(100 + int(sinf(GetTime()*0.0015f)*40))};
     DrawText("Sobreviva. Evolua. Extrude.", SCREEN_W/2-MeasureText("Sobreviva. Evolua. Extrude.", 18)/2, 210, 18, subCol);
     
     DrawText("WASD para mover", SCREEN_W/2-MeasureText("WASD para mover", 20)/2, 270, 20, WHITE);
     DrawText("Mire com o mouse", SCREEN_W/2-MeasureText("Mire com o mouse", 20)/2, 300, 20, WHITE);
     DrawText("Sobreviva a 15 ondas e derrote o CHEFAO", SCREEN_W/2-MeasureText("Sobreviva a 15 ondas e derrote o CHEFAO", 20)/2, 330, 20, WHITE);
-    
-    // blink
+
     float ba = 0.5f + sinf(GetTime()*0.003f)*0.5f;
     Color hintCol = {200,200,200,(unsigned char)(ba*255)};
     DrawText("Pressione ESPACO para continuar", SCREEN_W/2-MeasureText("Pressione ESPACO para continuar", 20)/2, 400, 20, hintCol);
@@ -1251,12 +1267,20 @@ static void drawMenu() {
         float ga = 0.8f + sinf(GetTime()*0.004f)*0.2f;
         Color dc = COL_GOLD; dc.a = (unsigned char)(255*ga);
         DrawText("MODO DEV DESBLOQUEADO!", SCREEN_W/2-MeasureText("MODO DEV DESBLOQUEADO!", 24)/2, 450, 24, dc);
+        DrawText("Pressione D no lobby para configurar", SCREEN_W/2-MeasureText("Pressione D no lobby para configurar", 16)/2, 480, 16, {200,200,200,180});
+    } else {
+        char display[40];
+        snprintf(display, sizeof(display), "> %s", menuInput);
+        int dw = MeasureText(display, 14);
+        DrawText(display, SCREEN_W/2-dw/2, 450, 14, {150,150,170,120});
+        float ba2 = 0.5f + sinf(GetTime()*0.003f)*0.5f;
+        Color bc = {150,150,170,(unsigned char)(ba2*255)};
+        DrawText("_", SCREEN_W/2 + dw/2 + 2, 450, 14, bc);
     }
 }
 
 static void drawLobby() {
     ClearBackground({15,10,30,255});
-    // animated particles
     for (int i=0; i<20; i++) {
         float px = (sinf(GetTime()*0.0009f*(i%6+2)+i)*0.5f+0.5f) * SCREEN_W;
         float py = (cosf(GetTime()*0.0007f*(i%4+3)+i*3)*0.5f+0.5f) * SCREEN_H;
@@ -1266,20 +1290,21 @@ static void drawLobby() {
     float tp = 0.9f + sinf(GetTime()*0.002f)*0.1f;
     Color tcol = {255,255,255,(unsigned char)(255*tp)};
     DrawText("ESCOLHA SUA HABILIDADE", SCREEN_W/2-MeasureText("ESCOLHA SUA HABILIDADE", 30)/2, 50, 30, tcol);
-    DrawText("1-5 para selecionar, ESPACO para comecar", SCREEN_W/2-MeasureText("1-5 para selecionar, ESPACO para comecar", 16)/2, 90, 16, {180,180,180,255});
+    DrawText("1-6 para selecionar, ESPACO para comecar", SCREEN_W/2-MeasureText("1-6 para selecionar, ESPACO para comecar", 16)/2, 90, 16, {180,180,180,255});
     
-    const char* abNames[] = {"Bull Master","Pes Ligeiros","Atravessamento","Buraco Negro","Rajada Explosiva"};
-    const char* abIcons[] = {"B","W","P","H","R"};
-    const char* abDescs[] = {"Investida veloz","Velocidade加倍","Tiros perfurantes","Gravidade mortal","Rajada explosiva"};
-    const char* abKeys[] = {"1","2","3","4","5"};
-    Color abColors[] = {{255,170,50,255},{100,255,100,255},{255,100,100,255},{160,80,255,255},{255,255,80,255}};
+    const char* abNames[] = {"Bull Master","Pes Ligeiros","Atravessamento","Buraco Negro","Rajada Explosiva","Laser"};
+    const char* abIcons[] = {"B","W","P","H","R","L"};
+    const char* abDescs[] = {"Investida veloz","Velocidade加倍","Tiros perfurantes","Gravidade mortal","Rajada explosiva","Raio continuo"};
+    const char* abKeys[] = {"1","2","3","4","5","6"};
+    Color abColors[] = {{255,170,50,255},{100,255,100,255},{255,100,100,255},{160,80,255,255},{255,255,80,255},{255,50,50,255}};
     
-    int boxW = 200, boxH = 90, gap = 12;
-    int totalW = boxW*5 + gap*4;
+    int abCount = 6;
+    int boxW = 165, boxH = 85, gap = 10;
+    int totalW = boxW*abCount + gap*(abCount-1);
     int startX = SCREEN_W/2 - totalW/2;
     int boxY = 150;
     
-    for (int i=0; i<5; i++) {
+    for (int i=0; i<abCount; i++) {
         int bx = startX + i*(boxW+gap);
         bool selected = (int)chosenAbility==i;
         Color bg = selected ? Color{50,40,70,230} : Color{20,15,35,200};
@@ -1289,14 +1314,10 @@ static void drawLobby() {
         if (selected) {
             DrawRectangleLines(bx+2, boxY+2, boxW-4, boxH-4, Color{border.r,border.g,border.b,60});
         }
-        // key badge
         DrawCircle(bx+20, boxY+20, 12, abColors[i]);
         DrawText(abKeys[i], bx+15, boxY+14, 14, {5,3,15,255});
-        // icon
         DrawText(abIcons[i], bx+42, boxY+12, 18, abColors[i]);
-        // name
         DrawText(abNames[i], bx+10, boxY+42, 14, selected?COL_GOLD:Color{200,200,200,255});
-        // desc
         DrawText(abDescs[i], bx+10, boxY+62, 11, {150,150,170,200});
     }
     
@@ -1308,27 +1329,22 @@ static void drawLobby() {
 }
 
 static void drawUpgradeMenu() {
-    // dark overlay
     DrawRectangle(0, 0, SCREEN_W, SCREEN_H, {5,3,15,220});
 
-    // title with glow
     const char* title = "UPGRADE";
     float pulse = 0.9f + sinf(GetTime()*0.003f)*0.1f;
     int titleW = MeasureText(title, 40);
     int titleX = SCREEN_W/2 - titleW/2;
     Color titleColor = {255,215,0,(unsigned char)(255*pulse)};
     DrawText(title, titleX, 120, 40, titleColor);
-    // decorative lines
     for (int i=0; i<2; i++) {
         int lx = i==0 ? titleX-40 : titleX+titleW+10;
         int ly = 148;
         DrawRectangle(lx, ly, 30, 2, COL_GOLD);
     }
 
-    // level info
     DrawText(TextFormat("Nivel %d", playerLevel), SCREEN_W/2 - MeasureText(TextFormat("Nivel %d", playerLevel), 16)/2, 170, 16, {180,180,180,255});
 
-    // choice boxes
     int choices[3] = {upgradeDisplay1, upgradeDisplay2, upgradeDisplay3};
     int boxW = 320, boxH = 100;
     int startX = SCREEN_W/2 - (boxW*3 + 30)/2;
@@ -1339,7 +1355,6 @@ static void drawUpgradeMenu() {
         int by = boxY;
         int idx = choices[i];
 
-        // box background
         bool hovered = false;
         if (upgradeCycleFinished) {
             Vector2 mp = GetMousePosition();
@@ -1352,35 +1367,105 @@ static void drawUpgradeMenu() {
         DrawRectangle(bx, by, boxW, boxH, boxBg);
         DrawRectangleLines(bx, by, boxW, boxH, boxBorder);
 
-        // key number
         DrawText(TextFormat("%d", i+1), bx+10, by+8, 18, hovered?COL_GOLD:Color{150,140,170,255});
 
-        if (idx >= 0 && idx < (int)upgrades.size()) {
-            // name
+        if (idx >= 0 && idx < (int)upgradePool->size()) {
             Color nameColor = upgradeCycleFinished ? COL_GOLD : Color{120,110,140,200};
-            DrawText(upgrades[idx].name, bx+40, by+15, 18, nameColor);
-            // desc
-            DrawText(upgrades[idx].desc, bx+15, by+45, 13, {180,180,190,200});
+            DrawText((*upgradePool)[idx].name, bx+40, by+15, 18, nameColor);
+            DrawText((*upgradePool)[idx].desc, bx+15, by+45, 13, {180,180,190,200});
         } else {
             DrawText("???", bx+boxW/2-15, by+boxH/2-10, 20, {80,70,100,180});
         }
     }
-
-    // bottom hint
     if (upgradeCycleFinished) {
         float hintAlpha = 0.7f + sinf(GetTime()*0.002f)*0.3f;
         Color hintColor = {200,200,210,(unsigned char)(hintAlpha*255)};
         const char* hint = "Clique ou pressione 1, 2, 3 para escolher";
         DrawText(hint, SCREEN_W/2-MeasureText(hint, 15)/2, 360, 15, hintColor);
     } else {
-        // cycling indicator
         DrawText("SORTEANDO...", SCREEN_W/2-MeasureText("SORTEANDO...", 18)/2, 360, 18, {150,130,80,(unsigned char)(120 + (int)(sinf(GetTime()*0.006f)*60))});
     }
 }
 
-// ----------------------------------------------------------------
-// MAIN
-// ----------------------------------------------------------------
+static bool settingsOpen = false;
+static void drawPauseMenu() {
+    DrawRectangle(0, 0, SCREEN_W, SCREEN_H, {0,0,0,200});
+
+    if (settingsOpen) {
+        float tp = 0.85f + sinf(GetTime()*0.002f)*0.15f;
+        Color tcol = {255,255,255,(unsigned char)(255*tp)};
+        DrawText("CONTROLES", SCREEN_W/2-MeasureText("CONTROLES", 36)/2, 180, 36, tcol);
+
+        int boxW = 300, boxH = 50, gap = 15;
+        int startY = 270;
+        Vector2 mp = GetMousePosition();
+
+        const char* modes[2] = {"WASD — Movimento pelo teclado", "Mouse — Move na direcao do cursor"};
+        for (int i=0; i<2; i++) {
+            int by = startY + i*(boxH+gap);
+            int bx = SCREEN_W/2 - boxW/2;
+            bool selected = (int)controlMode == i;
+            bool hovered = (mp.x>=bx && mp.x<=bx+boxW && mp.y>=by && mp.y<=by+boxH);
+            Color bg = selected ? Color{50,60,80,240} : (hovered?Color{40,35,55,240}:Color{25,20,40,220});
+            Color border = selected ? COL_GOLD : Color{70,60,90,180};
+            DrawRectangle(bx, by, boxW, boxH, bg);
+            DrawRectangleLines(bx, by, boxW, boxH, border);
+            if (selected) DrawRectangleLines(bx+2, by+2, boxW-4, boxH-4, Color{border.r,border.g,border.b,60});
+            DrawText(modes[i], bx+10, by+17, 13, selected?COL_GOLD:(hovered?Color{220,220,220,255}:Color{180,180,180,255}));
+        }
+
+        float ba = 0.5f+sinf(GetTime()*0.003f)*0.3f;
+        Color hintC = {180,180,200,(unsigned char)(ba*200)};
+        DrawText("Clique para selecionar | ESC voltar", SCREEN_W/2-MeasureText("Clique para selecionar | ESC voltar", 14)/2, 420, 14, hintC);
+        return;
+    }
+
+    float tp = 0.85f + sinf(GetTime()*0.002f)*0.15f;
+    Color tcol = {255,255,255,(unsigned char)(255*tp)};
+    DrawText("PAUSA", SCREEN_W/2-MeasureText("PAUSA", 46)/2, 180, 46, tcol);
+
+    const char* items[4] = {"Continuar", "Recomecar", "Configuracoes", "Voltar ao Menu"};
+    int boxW = 240, boxH = 50, gap = 15;
+    int startY = 270;
+
+    Vector2 mp = GetMousePosition();
+    for (int i=0; i<4; i++) {
+        int by = startY + i*(boxH+gap);
+        int bx = SCREEN_W/2 - boxW/2;
+        bool hovered = (mp.x>=bx && mp.x<=bx+boxW && mp.y>=by && mp.y<=by+boxH);
+        Color bg = hovered ? Color{50,45,70,240} : Color{25,20,40,220};
+        Color border = hovered ? COL_GOLD : Color{70,60,90,180};
+        DrawRectangle(bx, by, boxW, boxH, bg);
+        DrawRectangleLines(bx, by, boxW, boxH, border);
+        if (hovered) DrawRectangleLines(bx+2, by+2, boxW-4, boxH-4, Color{border.r,border.g,border.b,50});
+        DrawText(items[i], bx+boxW/2-MeasureText(items[i], 18)/2, by+16, 18, hovered?COL_GOLD:Color{200,200,200,255});
+    }
+}
+
+static void resetGameState() {
+    playerPos = Vec2(WORLD_W/2, WORLD_H/2);
+    playerHp = playerMaxHp;
+    playerShieldHp = playerShieldMax;
+    playerStamina = playerMaxStamina;
+    playerXp = 0; playerLevel = 1; playerXpNeeded = 30;
+    playerBullets = 1; playerDashCooldown = 0;
+    overdriveActive = false; speedBoostActive = false; laserActive = false;
+    overdriveTimer = 0; overdriveCooldownTimer = 0;
+    speedBoostTimer = 0; speedBoostCooldownTimer = 0;
+    laserTimer = 0; laserCooldownTimer = 0;
+    piercingNext = false; shotCount = 0; bhTimer = 0;
+    bullets.clear(); enemyBullets.clear(); particles.clear();
+    shockwaves.clear(); bombs.clear(); blackholes.clear();
+    enemies.clear(); minions.clear(); score = 0; playerTrailCount = 0;
+    if (devModeUnlocked) applyDevAttributes();
+    applyAbilityPassives();
+    wave.number = 0; wave.phase = WAVE_NORMAL;
+    wave.minibossesDefeated = 0; wave.waitingNextWave = false;
+    paused = false;
+    settingsOpen = false;
+    upgradePool = &upgrades;
+}
+
 int main() {
     srand(time(0));
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -1390,12 +1475,10 @@ int main() {
     
     initSounds();
     initUpgrades();
-    
-// UI state for upgrade selection
+
         int lastUpgradeChoice1 = -1, lastUpgradeChoice2 = -1, lastUpgradeChoice3 = -1;
         int upgradePickCount = 0;
     
-    // dev panel
     bool devPanelOpen = false;
     
     gamePhase = PHASE_MENU;
@@ -1404,24 +1487,36 @@ int main() {
         int dt = (int)(GetFrameTime()*1000);
         if (dt < 1) dt = 1;
         
-        // ---- INPUT ----
         if (gamePhase == PHASE_MENU) {
             if (IsKeyPressed(KEY_SPACE)) {
                 gamePhase = PHASE_LOBBY;
                 chosenAbility = ABILITY_BULLMASTER;
             }
-            if (IsKeyPressed(KEY_D) && devModeUnlocked) {
-                // dev panel toggle
+            int c = GetCharPressed();
+            while (c > 0) {
+                if (menuInputLen < 30 && c >= 32 && c <= 126) {
+                    menuInput[menuInputLen++] = (char)c;
+                    menuInput[menuInputLen] = 0;
+                }
+                c = GetCharPressed();
+            }
+            if (IsKeyPressed(KEY_BACKSPACE) && menuInputLen > 0) {
+                menuInput[--menuInputLen] = 0;
+            }
+            if (!devModeUnlocked && strcmp(menuInput, "J0gad0r1234dev") == 0) {
+                devModeUnlocked = true;
+                menuInputLen = 0;
+                menuInput[0] = 0;
             }
         } else if (gamePhase == PHASE_LOBBY) {
-            // mouse selection for abilities
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 Vector2 mp = GetMousePosition();
-                int boxW = 200, boxH = 90, gap = 12;
-                int totalW = boxW*5 + gap*4;
+                int abCount = 6;
+                int boxW = 165, boxH = 85, gap = 10;
+                int totalW = boxW*abCount + gap*(abCount-1);
                 int startX = SCREEN_W/2 - totalW/2;
                 int boxY = 150;
-                for (int i=0; i<5; i++) {
+                for (int i=0; i<abCount; i++) {
                     int bx = startX + i*(boxW+gap);
                     if (mp.x>=bx && mp.x<=bx+boxW && mp.y>=boxY && mp.y<=boxY+boxH)
                         chosenAbility = (AbilityID)(i);
@@ -1432,74 +1527,180 @@ int main() {
             if (IsKeyPressed(KEY_THREE)) chosenAbility = ABILITY_PIERCING;
             if (IsKeyPressed(KEY_FOUR)) chosenAbility = ABILITY_BLACKHOLE;
             if (IsKeyPressed(KEY_FIVE)) chosenAbility = ABILITY_OVERDRIVE;
+            if (IsKeyPressed(KEY_SIX)) chosenAbility = ABILITY_LASER;
             if (IsKeyPressed(KEY_D) && devModeUnlocked) {
                 devPanelOpen = !devPanelOpen;
             }
             if (IsKeyPressed(KEY_SPACE) && !devPanelOpen) {
                 gamePhase = PHASE_GAME;
                 gameStarted = true;
-                // reset player
                 playerPos = Vec2(WORLD_W/2, WORLD_H/2);
                 playerHp = playerMaxHp;
                 playerShieldHp = playerShieldMax;
                 playerStamina = playerMaxStamina;
                 playerXp = 0; playerLevel = 1; playerXpNeeded = 30;
                 playerBullets = 1; playerDashCooldown = 0;
-                overdriveActive = false; speedBoostActive = false;
+                overdriveActive = false; speedBoostActive = false; laserActive = false;
+                overdriveTimer = 0; overdriveCooldownTimer = 0;
+                speedBoostTimer = 0; speedBoostCooldownTimer = 0;
+                laserTimer = 0; laserCooldownTimer = 0;
                 piercingNext = false; shotCount = 0; bhTimer = 0;
                 bullets.clear(); enemyBullets.clear(); particles.clear();
                 shockwaves.clear(); bombs.clear(); blackholes.clear();
-                enemies.clear(); minions.clear(); score = 0;
+                enemies.clear(); minions.clear(); score = 0; playerTrailCount = 0;
                 
-                if (devModeUnlocked) applyDevAttributes();
+                if (devModeUnlocked) {
+                    applyDevAttributes();
+                    wave.number = devWaveNumber - 1;
+                    wave.minibossesDefeated = 0;
+                }
                 applyAbilityPassives();
                 
                 wave.number = 0; wave.phase = WAVE_NORMAL;
                 wave.minibossesDefeated = 0; wave.waitingNextWave = false;
                 
                 startNextWave();
+                if (devModeUnlocked && devWaveNumber > 1) {
+                    while (wave.number < devWaveNumber && wave.number < TOTAL_WAVES) {
+                        wave.number++;
+                        wave.phase = WAVE_NORMAL;
+                        wave.enemiesToSpawn = 8 + (int)(wave.number*4.5f);
+                        wave.spawnTimer = 0;
+                        wave.spawnInterval = std::max(280, 950 - wave.number*40);
+                        wave.announcement = TextFormat("Onda %d/%d", wave.number, TOTAL_WAVES);
+                        wave.announcementTimer = 2500;
+                        applyBiomeForCurrentWave();
+                    }
+                    enemies.clear();
+                }
             }
         } else if (gamePhase == PHASE_GAME || gamePhase == PHASE_UPGRADE) {
-            if (IsKeyPressed(KEY_ESCAPE)) {
-                paused = !paused;
+            if (IsKeyPressed(KEY_ENTER)) {
+                if (gamePhase == PHASE_UPGRADE) {
+                    gamePhase = PHASE_GAME; paused = false;
+                } else {
+                    paused = !paused;
+                    if (!paused) settingsOpen = false;
+                }
+            }
+
+            if (paused && gamePhase == PHASE_GAME) {
+                if (IsKeyPressed(KEY_ESCAPE)) {
+                    if (settingsOpen) settingsOpen = false;
+                    else { paused = false; }
+                }
+                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                    Vector2 mp = GetMousePosition();
+                    int boxW, boxH, gap = 15, startY;
+                    if (settingsOpen) {
+                        boxW = 300; boxH = 50; startY = 270;
+                        int bx = SCREEN_W/2 - boxW/2;
+                        for (int i=0; i<2; i++) {
+                            int by = startY + i*(boxH+gap);
+                            if (mp.x>=bx && mp.x<=bx+boxW && mp.y>=by && mp.y<=by+boxH) {
+                                controlMode = (ControlMode)i;
+                            }
+                        }
+                    } else {
+                        boxW = 240; boxH = 50; startY = 270;
+                        int bx = SCREEN_W/2 - boxW/2;
+                        for (int i=0; i<4; i++) {
+                            int by = startY + i*(boxH+gap);
+                            if (mp.x>=bx && mp.x<=bx+boxW && mp.y>=by && mp.y<=by+boxH) {
+                                if (i==0) { paused = false; } // continuar
+                                else if (i==1) { // recomecar
+                                    for (auto& e : enemies) delete e;
+                                    enemies.clear();
+                                    resetGameState();
+                                    wave.number = 0; wave.phase = WAVE_NORMAL;
+                                    wave.minibossesDefeated = 0; wave.waitingNextWave = false;
+                                    startNextWave();
+                                    if (devModeUnlocked && devWaveNumber > 1) {
+                                        while (wave.number < devWaveNumber && wave.number < TOTAL_WAVES) {
+                                            wave.number++;
+                                            wave.phase = WAVE_NORMAL;
+                                            wave.enemiesToSpawn = 8 + (int)(wave.number*4.5f);
+                                            wave.spawnTimer = 0;
+                                            wave.spawnInterval = std::max(280, 950 - wave.number*40);
+                                            wave.announcement = TextFormat("Onda %d/%d", wave.number, TOTAL_WAVES);
+                                            wave.announcementTimer = 2500;
+                                            applyBiomeForCurrentWave();
+                                        }
+                                        enemies.clear();
+                                    }
+                                } else if (i==2) { // configuracoes
+                                    settingsOpen = true;
+                                } else if (i==3) { // voltar ao menu
+                                    for (auto& e : enemies) delete e;
+                                    enemies.clear();
+                                    gamePhase = PHASE_MENU; gameStarted = false;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (IsKeyPressed(KEY_R)) {
+                    for (auto& e : enemies) delete e;
+                    enemies.clear();
+                    resetGameState();
+                    wave.number = 0; wave.phase = WAVE_NORMAL;
+                    wave.minibossesDefeated = 0; wave.waitingNextWave = false;
+                    startNextWave();
+                    if (devModeUnlocked && devWaveNumber > 1) {
+                        while (wave.number < devWaveNumber && wave.number < TOTAL_WAVES) {
+                            wave.number++;
+                            wave.phase = WAVE_NORMAL;
+                            wave.enemiesToSpawn = 8 + (int)(wave.number*4.5f);
+                            wave.spawnTimer = 0;
+                            wave.spawnInterval = std::max(280, 950 - wave.number*40);
+                            wave.announcement = TextFormat("Onda %d/%d", wave.number, TOTAL_WAVES);
+                            wave.announcementTimer = 2500;
+                            applyBiomeForCurrentWave();
+                        }
+                        enemies.clear();
+                    }
+                }
             }
             
             if (!paused) {
-                // ---- UPDATE ----
                 float moveX=0, moveY=0;
                 float mul = 1;
                 if (chosenAbility==ABILITY_WINDRUNNER && speedBoostActive) mul = 2.5f;
                 
-                if (IsKeyDown(KEY_W)) moveY = -playerSpeed*mul;
-                if (IsKeyDown(KEY_S)) moveY = playerSpeed*mul;
-                if (IsKeyDown(KEY_A)) moveX = -playerSpeed*mul;
-                if (IsKeyDown(KEY_D)) moveX = playerSpeed*mul;
+                if (controlMode == CONTROL_WASD) {
+                    if (IsKeyDown(KEY_W)) moveY = -playerSpeed*mul;
+                    if (IsKeyDown(KEY_S)) moveY = playerSpeed*mul;
+                    if (IsKeyDown(KEY_A)) moveX = -playerSpeed*mul;
+                    if (IsKeyDown(KEY_D)) moveX = playerSpeed*mul;
+                } else {
+                    Vector2 mp = GetMousePosition();
+                    Vec2 target(mp.x + camera.x, mp.y + camera.y);
+                    Vec2 dir = (target - playerPos).normalized();
+                    float dist = (target - playerPos).len();
+                    if (dist > 10) { moveX = dir.x * playerSpeed * mul; moveY = dir.y * playerSpeed * mul; }
+                }
                 
-                // right click: ability first, then dash
                 if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
-                    bool abilityUsed = false;
                     if (chosenAbility == ABILITY_OVERDRIVE && !overdriveActive && overdriveCooldownTimer<=0) {
-                        overdriveActive = true; overdriveTimer = 0; abilityUsed = true;
+                        overdriveActive = true; overdriveTimer = 0;
+                    } else if (chosenAbility == ABILITY_WINDRUNNER && speedBoostCooldownTimer<=0) {
+                        speedBoostActive = true; speedBoostTimer = 0; speedBoostCooldownTimer = 8000;
                     }
-                    if (!abilityUsed && chosenAbility == ABILITY_WINDRUNNER && speedBoostCooldownTimer<=0) {
-                        speedBoostActive = true; speedBoostTimer = 0; speedBoostCooldownTimer = 8000; abilityUsed = true;
-                    }
-                    if (!abilityUsed && !playerDashing && playerStamina>=playerDashStaminaCost && playerDashCooldown<=0) {
-                        playerDashing = true;
-                        playerDashTimer = 0;
-                        playerStamina -= playerDashStaminaCost;
-                        playerDashCooldown = playerDashCooldownTime;
-                        float dx=0, dy=0;
-                        if (IsKeyDown(KEY_W)) dy=-1; if (IsKeyDown(KEY_S)) dy=1;
-                        if (IsKeyDown(KEY_A)) dx=-1; if (IsKeyDown(KEY_D)) dx=1;
-                        if (dx!=0||dy!=0) { float l=hypotf(dx,dy); dx/=l; dy/=l; }
-                        else { dx=cosf(playerAngle); dy=sinf(playerAngle); }
-                        playerDashTimer = 0;
-                        playerDashCD = true;
-                    }
-                } // end right-click
+                }
+                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !playerDashing && playerStamina>=playerDashStaminaCost && playerDashCooldown<=0) {
+                    playerDashing = true;
+                    playerDashTimer = 0;
+                    playerStamina -= playerDashStaminaCost;
+                    playerDashCooldown = playerDashCooldownTime;
+                    float dx=0, dy=0;
+                    if (IsKeyDown(KEY_W)) dy=-1; if (IsKeyDown(KEY_S)) dy=1;
+                    if (IsKeyDown(KEY_A)) dx=-1; if (IsKeyDown(KEY_D)) dx=1;
+                    if (dx!=0||dy!=0) { float l=hypotf(dx,dy); dx/=l; dy/=l; }
+                    else { dx=cosf(playerAngle); dy=sinf(playerAngle); }
+                    playerDashTimer = 0;
+                    playerDashCD = true;
+                }
                 if (playerDashing) {
-                    // simplified dash
                     playerPos.x += moveX*5;
                     playerPos.y += moveY*5;
                     playerDashTimer += dt;
@@ -1508,6 +1709,20 @@ int main() {
                 
                 playerPos.x += moveX;
                 playerPos.y += moveY;
+                for (auto& o : obstacles) {
+                    if (circleRect(playerPos, playerR, o.x,o.y,o.w,o.h)) {
+                        float cx = clamp(playerPos.x, o.x, o.x+o.w);
+                        float cy = clamp(playerPos.y, o.y, o.y+o.h);
+                        float dx = playerPos.x - cx;
+                        float dy = playerPos.y - cy;
+                        float dist = sqrtf(dx*dx+dy*dy);
+                        if (dist < playerR) {
+                            float pen = playerR - dist;
+                            if (dist > 0.01f) { playerPos.x += dx/dist*pen; playerPos.y += dy/dist*pen; }
+                            else { playerPos.x += pen; }
+                        }
+                    }
+                }
                 playerPos.x = clamp(playerPos.x, 0, WORLD_W);
                 playerPos.y = clamp(playerPos.y, 0, WORLD_H);
                 
@@ -1516,22 +1731,18 @@ int main() {
                 if (playerDashCooldown>0) playerDashCooldown -= dt;
                 if (playerStamina<playerMaxStamina) playerStamina = std::min(playerMaxStamina, playerStamina+playerStaminaRegen);
                 
-                // regen
                 playerHp = std::min(playerMaxHp, playerHp + playerRegen*0.01f);
                 if (playerShieldMax>0 && playerShieldHp<playerShieldMax)
                     playerShieldHp = std::min(playerShieldMax, playerShieldHp+0.05f);
                 
                 updateCamera();
                 tryFire(dt);
-                
-                // update bullets
+
                 for (int i=bullets.size()-1; i>=0; i--) {
                     auto& b = bullets[i];
-                    // trail (fixed-size circular)
                     if (graphicsMode!=GRAPHICS_LOW && b.trailCount<6) {
                         b.trail[b.trailCount++] = b.pos;
                     }
-                    // homing
                     if (b.homing && chosenAbility==ABILITY_BULLMASTER) {
                         Enemy* target = nullptr; float nd=1e9;
                         for (auto& e : enemies) {
@@ -1546,14 +1757,12 @@ int main() {
                     }
                     b.pos = b.pos + b.vel;
                     
-                    // wall collision
                     bool hitWall = false;
                     for (auto& o : obstacles) {
                         if (circleRect(b.pos, b.r, o.x,o.y,o.w,o.h)) { hitWall=true; break; }
                     }
                     if (hitWall) { bullets.erase(bullets.begin()+i); continue; }
                     
-                    // enemy collision
                     for (int ei=enemies.size()-1; ei>=0; ei--) {
                         auto& e = enemies[ei];
                         if (dist(b.pos, e->pos) < b.r + e->r) {
@@ -1574,17 +1783,14 @@ int main() {
                         }
                     }
                     
-                    // out of bounds
                     if (b.pos.x<-100||b.pos.x>WORLD_W+100||b.pos.y<-100||b.pos.y>WORLD_H+100)
                         bullets.erase(bullets.begin()+i);
                 }
                 
-                // enemy bullets
                 for (int i=enemyBullets.size()-1; i>=0; i--) {
                     auto& b = enemyBullets[i];
                     b.pos = b.pos + b.vel;
                     if (dist(b.pos, playerPos) < b.r + playerR) {
-                        // apply damage
                         playerHp -= 10;
                         if (playerHp <= 0) { playerHp=0; gamePhase=PHASE_GAMEOVER; }
                         enemyBullets.erase(enemyBullets.begin()+i);
@@ -1594,10 +1800,8 @@ int main() {
                         enemyBullets.erase(enemyBullets.begin()+i);
                 }
                 
-                // update enemies
                 for (auto& e : enemies) e->update(dt);
                 
-                // update particles
                 for (int i=particles.size()-1; i>=0; i--) {
                     particles[i].pos = particles[i].pos + particles[i].vel;
                     particles[i].life--;
@@ -1606,17 +1810,25 @@ int main() {
                 if (graphicsMode==GRAPHICS_LOW && particles.size()>60)
                     particles.erase(particles.begin(), particles.begin()+(particles.size()-60));
                 
-                // xp check
                 if (playerXp >= playerXpNeeded) {
                     playerXp = 0;
                     playerLevel++;
                     playerXpNeeded = (int)(playerXpNeeded*1.35f);
                     paused = true;
                     gamePhase = PHASE_UPGRADE;
-                    // generate final choices
-                    lastUpgradeChoice1 = rand()%upgrades.size();
-                    lastUpgradeChoice2 = rand()%upgrades.size();
-                    lastUpgradeChoice3 = rand()%upgrades.size();
+                    std::vector<Upgrade>& pool = (chosenAbility == ABILITY_LASER) ? laserUpgrades : upgrades;
+                    bool useRare = !rareUpgrades.empty() && randf()<0.05f && chosenAbility != ABILITY_LASER;
+                    std::vector<Upgrade>& finalPool = useRare ? rareUpgrades : pool;
+                    upgradePool = &finalPool;
+                    int total = (int)finalPool.size();
+                    if (total < 1) { upgradePool = &upgrades; total = (int)upgrades.size(); }
+                    if (total < 3) {
+                        lastUpgradeChoice1 = 0; lastUpgradeChoice2 = total>1?1:0; lastUpgradeChoice3 = 0;
+                    } else {
+                        lastUpgradeChoice1 = rand()%total;
+                        do { lastUpgradeChoice2 = rand()%total; } while (lastUpgradeChoice2 == lastUpgradeChoice1);
+                        do { lastUpgradeChoice3 = rand()%total; } while (lastUpgradeChoice3 == lastUpgradeChoice1 || lastUpgradeChoice3 == lastUpgradeChoice2);
+                    }
                     upgradePickCount = 0;
                     upgradeCycleTimer = 0;
                     upgradeCycleFinished = false;
@@ -1628,15 +1840,13 @@ int main() {
                 updateWaveLogic(dt);
             }
             
-            // ability timers always update (even when paused)
             updateOverdrive(dt);
             updateSpeedBoost(dt);
             updateMinions(dt);
             updateBlackHoleAbility(dt);
+            updateLaser(dt, paused);
             
-            // upgrade menu handled in input
-            if (gamePhase == PHASE_UPGRADE) {
-                // cycling animation (visual only)
+            if (gamePhase == PHASE_UPGRADE) {)
                 if (!upgradeCycleFinished) {
                     upgradeCycleTimer += dt;
                     if (upgradeCycleTimer > 2000) {
@@ -1647,7 +1857,7 @@ int main() {
                     } else {
                         int cycleSpeed = 80;
                         if (upgradeCycleTimer / cycleSpeed % 2 == 0) {
-                            int sz = upgrades.size();
+                            int sz = upgradePool->size();
                             int a = rand()%sz, b = rand()%sz, c = rand()%sz;
                             while (b == a) b = rand()%sz;
                             while (c == a || c == b) c = rand()%sz;
@@ -1655,7 +1865,6 @@ int main() {
                         }
                     }
                 }
-                // mouse/keyboard selection always available
                 Vector2 mp = GetMousePosition();
                 int boxW = 320, boxH = 100;
                 int startX = SCREEN_W/2 - (boxW*3 + 30)/2;
@@ -1665,38 +1874,35 @@ int main() {
                         int bx = startX + i*(boxW+15);
                         if (mp.x>=bx && mp.x<=bx+boxW && mp.y>=boxY && mp.y<=boxY+boxH) {
                             int choice = i==0?lastUpgradeChoice1:(i==1?lastUpgradeChoice2:lastUpgradeChoice3);
-                            if (choice>=0) upgrades[choice].apply();
+                            if (choice>=0) (*upgradePool)[choice].apply();
                             gamePhase = PHASE_GAME; paused = false;
                             break;
                         }
                     }
                 }
                 if (IsKeyPressed(KEY_ONE)) {
-                    if (lastUpgradeChoice1>=0) upgrades[lastUpgradeChoice1].apply();
+                    if (lastUpgradeChoice1>=0) (*upgradePool)[lastUpgradeChoice1].apply();
                     gamePhase = PHASE_GAME; paused = false;
                 } else if (IsKeyPressed(KEY_TWO)) {
-                    if (lastUpgradeChoice2>=0) upgrades[lastUpgradeChoice2].apply();
+                    if (lastUpgradeChoice2>=0) (*upgradePool)[lastUpgradeChoice2].apply();
                     gamePhase = PHASE_GAME; paused = false;
                 } else if (IsKeyPressed(KEY_THREE)) {
-                    if (lastUpgradeChoice3>=0) upgrades[lastUpgradeChoice3].apply();
+                    if (lastUpgradeChoice3>=0) (*upgradePool)[lastUpgradeChoice3].apply();
                     gamePhase = PHASE_GAME; paused = false;
                 }
             }
             
-            // game over
             if (playerHp <= 0) {
                 gamePhase = PHASE_GAMEOVER;
                 gameStarted = false;
             }
         } else if (gamePhase == PHASE_GAMEOVER) {
             if (IsKeyPressed(KEY_SPACE)) {
-                // restart
                 gamePhase = PHASE_MENU;
                 playerHp = playerMaxHp;
             }
         }
         
-        // ---- DRAW ----
         BeginDrawing();
         
         if (gamePhase == PHASE_MENU) {
@@ -1704,29 +1910,95 @@ int main() {
         } else if (gamePhase == PHASE_LOBBY) {
             drawLobby();
             if (devPanelOpen) {
-                DrawRectangle(0,0,SCREEN_W,SCREEN_H, {10,5,20,230});
-                DrawText("MODO DEV", SCREEN_W/2-MeasureText("MODO DEV", 30)/2, 80, 30, COL_GOLD);
-                DrawText("Atributos maximizados ativados!", SCREEN_W/2-MeasureText("Atributos maximizados ativados!", 18)/2, 130, 18, WHITE);
-                DrawText("Pressione D para fechar", SCREEN_W/2-MeasureText("Pressione D para fechar", 16)/2, 200, 16, {180,180,180,255});
+                DrawRectangle(0,0,SCREEN_W,SCREEN_H, {10,5,20,240});
+                int y = 60;
+                DrawText("PAINEL DEV", SCREEN_W/2-MeasureText("PAINEL DEV", 36)/2, y, 36, COL_GOLD);
+                y += 50;
+                Vector2 mp = GetMousePosition();
+                bool clicked = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+                auto btn = [&](int bx, int by2, int bw, int bh, const char* label) -> bool {
+                    if (clicked && mp.x>=bx && mp.x<=bx+bw && mp.y>=by2 && mp.y<=by2+bh)
+                        return true;
+                    DrawRectangle(bx, by2, bw, bh, {80,40,40,255});
+                    DrawText(label, bx+6, by2+2, 14, WHITE);
+                    return false;
+                };
+                int colW = 220, rowH = 30;
+                int startX = SCREEN_W/2 - (3*colW)/2;
+                for (int i=0; i<9; i++) {
+                    int col = i % 3;
+                    int row = i / 3;
+                    int x = startX + col*colW;
+                    int y2 = y + row*rowH;
+                    const char* name;
+                    char valTxt[32];
+                    int bx;
+                    switch (i) {
+                        case 0: name="Vida Max"; snprintf(valTxt,32,"%.0f",playerMaxHp);
+                            bx = x+160; if (btn(bx,y2,20,20,"-") && playerMaxHp>20) playerMaxHp-=25;
+                            if (btn(bx+22,y2,20,20,"+") && playerMaxHp<500) playerMaxHp+=25;
+                            break;
+                        case 1: name="Dano"; snprintf(valTxt,32,"%.0f",playerDamage);
+                            bx = x+160; if (btn(bx,y2,20,20,"-") && playerDamage>1) playerDamage-=5;
+                            if (btn(bx+22,y2,20,20,"+") && playerDamage<200) playerDamage+=5;
+                            break;
+                        case 2: name="Vel Tiro"; snprintf(valTxt,32,"%.1f",playerBulletSpeed);
+                            bx = x+160; if (btn(bx,y2,20,20,"-") && playerBulletSpeed>1) playerBulletSpeed-=1;
+                            if (btn(bx+22,y2,20,20,"+") && playerBulletSpeed<30) playerBulletSpeed+=1;
+                            break;
+                        case 3: name="Freq Tiro"; snprintf(valTxt,32,"%dms",playerFireRate);
+                            bx = x+160; if (btn(bx,y2,20,20,"-") && playerFireRate>50) playerFireRate-=50;
+                            if (btn(bx+22,y2,20,20,"+") && playerFireRate<500) playerFireRate+=50;
+                            break;
+                        case 4: name="Tiros"; snprintf(valTxt,32,"%d",playerBullets);
+                            bx = x+160; if (btn(bx,y2,20,20,"-") && playerBullets>1) playerBullets-=1;
+                            if (btn(bx+22,y2,20,20,"+") && playerBullets<10) playerBullets+=1;
+                            break;
+                        case 5: name="Escudo"; snprintf(valTxt,32,"%.0f",playerShieldMax);
+                            bx = x+160; if (btn(bx,y2,20,20,"-") && playerShieldMax>0) playerShieldMax-=10;
+                            if (btn(bx+22,y2,20,20,"+") && playerShieldMax<300) playerShieldMax+=10;
+                            break;
+                        case 6: name="Velocidade"; snprintf(valTxt,32,"%.1f",playerBaseSpeed);
+                            bx = x+160; if (btn(bx,y2,20,20,"-") && playerBaseSpeed>0.5f) playerBaseSpeed-=0.5f;
+                            if (btn(bx+22,y2,20,20,"+") && playerBaseSpeed<10) playerBaseSpeed+=0.5f;
+                            break;
+                        case 7: name="Onda Inicial"; snprintf(valTxt,32,"%d",devWaveNumber);
+                            bx = x+160; if (btn(bx,y2,20,20,"-") && devWaveNumber>1) devWaveNumber--;
+                            if (btn(bx+22,y2,20,20,"+") && devWaveNumber<TOTAL_WAVES) devWaveNumber++;
+                            break;
+                        case 8: name="Boss"; snprintf(valTxt,32,"%s",devBossEnabled?"Sim":"Nao");
+                            bx = x+160;
+                            if (btn(bx,y2,60,20,devBossEnabled?"Sim":"Nao")) devBossEnabled = !devBossEnabled;
+                            break;
+                    }
+                    DrawText(name, x, y2, 14, WHITE);
+                    DrawText(valTxt, x+90, y2, 14, COL_GOLD);
+                }
+                playerHp = std::min(playerHp, playerMaxHp);
+                playerShieldHp = std::min(playerShieldHp, playerShieldMax);
+                DrawText("Pressione D para fechar", SCREEN_W/2-MeasureText("Pressione D para fechar", 16)/2, SCREEN_H-40, 16, {180,180,180,255});
             }
         } else if (gamePhase == PHASE_GAME || gamePhase == PHASE_UPGRADE) {
             drawWorld();
             
-            // draw entities
             for (auto& b : bullets) {
                 float sx=toScreenX(b.pos.x), sy=toScreenY(b.pos.y);
-                // trail
                 if (graphicsMode!=GRAPHICS_LOW && b.trailCount>0) {
                     for (int t=0; t<b.trailCount; t++) {
                         float alpha = (t+1.0f)/b.trailCount*0.3f;
                         float rad = b.r*(t+1.0f)/b.trailCount*0.6f;
-                        Color tc = b.piercing?RED:(b.homing?COL_HOMING:COL_BULLET);
+                        Color tc = b.tethered?Color{100,255,200,255}:(b.piercing?RED:(b.homing?COL_HOMING:COL_BULLET));
                         tc.a = (unsigned char)(alpha*255);
                         float tx=toScreenX(b.trail[t].x), ty=toScreenY(b.trail[t].y);
                         DrawCircle(tx, ty, rad, tc);
                     }
                 }
                 Color bc = b.piercing?RED:(b.homing?COL_HOMING:COL_BULLET);
+                if (b.tethered) {
+                    bc = {100,255,200,255};
+                    float psx = toScreenX(playerPos.x), psy = toScreenY(playerPos.y);
+                    DrawLineEx({sx,sy}, {psx,psy}, 1.5f, {100,255,200,40});
+                }
                 DrawCircle(sx, sy, b.r, bc);
             }
             for (auto& b : enemyBullets) {
@@ -1741,21 +2013,46 @@ int main() {
                 DrawRectangle(sx, sy, 4, 4, c);
             }
             
-            // player
+            if (graphicsMode!=GRAPHICS_LOW) {
+                if (playerTrailCount<20) playerTrail[playerTrailCount++] = playerPos;
+                else {
+                    for (int t=0; t<19; t++) playerTrail[t] = playerTrail[t+1];
+                    playerTrail[19] = playerPos;
+                }
+                for (int t=0; t<playerTrailCount; t++) {
+                    float alpha = (t+1.0f)/playerTrailCount*0.2f;
+                    float rad = playerR*(t+1.0f)/playerTrailCount*0.5f;
+                    float tx = toScreenX(playerTrail[t].x), ty = toScreenY(playerTrail[t].y);
+                    Color tc = {42,157,244,(unsigned char)(alpha*255)};
+                    DrawCircle(tx, ty, rad, tc);
+                }
+            }
+            
             float psx=toScreenX(playerPos.x), psy=toScreenY(playerPos.y);
-            // shield visual
             if (playerShieldHp>0) DrawCircleLines(psx, psy, playerR+8, {120,200,255,180});
-            // overdrive aura
             if (chosenAbility==ABILITY_OVERDRIVE && overdriveActive) {
                 float p = 0.7f+sinf(GetTime()*0.015f)*0.3f;
                 DrawCircleLines(psx, psy, playerR+18+sinf(GetTime()*0.01f)*4, {255,255,68,(unsigned char)(p*100)});
             }
-            // speed boost aura
             if (chosenAbility==ABILITY_WINDRUNNER && speedBoostActive) {
                 float wp = 0.6f+sinf(GetTime()*0.02f)*0.3f;
                 DrawCircleLines(psx, psy, playerR+14+sinf(GetTime()*0.012f)*3, {200,255,200,(unsigned char)(wp*90)});
             }
-            // player glow
+            if (graphicsMode!=GRAPHICS_LOW) {
+                Vector2 mouse = GetMousePosition();
+                DrawLineEx({psx, psy}, mouse, 1.5f, {42,157,244,30});
+            }
+            if (chosenAbility == ABILITY_LASER && laserActive) {
+                Vector2 mouse = GetMousePosition();
+                Vec2 target(mouse.x + camera.x, mouse.y + camera.y);
+                float pulse = 0.7f + sinf(GetTime()*0.01f)*0.3f;
+                Color core = {255,50,50,(unsigned char)(255*pulse)};
+                Color glow = {255,0,0,(unsigned char)(80*pulse)};
+                Vec2 endPos = target;
+                float ex = toScreenX(endPos.x), ey = toScreenY(endPos.y);
+                DrawLineEx({psx, psy}, {ex, ey}, laserWidth*3, glow);
+                DrawLineEx({psx, psy}, {ex, ey}, laserWidth, core);
+            }
             if (graphicsMode!=GRAPHICS_LOW) {
                 DrawCircle(psx, psy, playerR+6, {42,157,244,40});
                 DrawCircle(psx, psy, playerR+12, {42,157,244,15});
@@ -1763,7 +2060,6 @@ int main() {
             DrawCircle(psx, psy, playerR, {42,157,244,255});
             DrawCircle(psx-4, psy-4, playerR*0.45f, {155,232,255,255});
             
-            // minions
             for (auto& m : minions) {
                 float mx = toScreenX(playerPos.x + cosf(m.angle)*m.orbitDist);
                 float my = toScreenY(playerPos.y + sinf(m.angle)*m.orbitDist);
@@ -1771,7 +2067,6 @@ int main() {
                 DrawCircle(mx-2, my-2, 3, {255,255,255,128});
             }
             
-            // black holes
             for (auto& bh : blackholes) {
                 float bx=toScreenX(bh.pos.x), by=toScreenY(bh.pos.y);
                 float prog = (float)bh.timer/BH_DURATION;
@@ -1786,20 +2081,15 @@ int main() {
             
             drawHUD();
             
-            // upgrade menu overlay
             if (gamePhase == PHASE_UPGRADE) {
                 drawUpgradeMenu();
             }
             
-            // pause overlay
             if (paused && gamePhase == PHASE_GAME) {
-                DrawRectangle(0,0,SCREEN_W,SCREEN_H, {0,0,0,180});
-                DrawText("PAUSA", SCREEN_W/2-MeasureText("PAUSA", 40)/2, SCREEN_H/2-40, 40, WHITE);
-                DrawText("ESC para continuar", SCREEN_W/2-MeasureText("ESC para continuar", 18)/2, SCREEN_H/2+10, 18, {180,180,180,255});
+                drawPauseMenu();
             }
         } else if (gamePhase == PHASE_GAMEOVER) {
             ClearBackground({10,5,20,255});
-            // particles
             for (int i=0; i<15; i++) {
                 float px = (sinf(GetTime()*0.002f*(i%7+2)+i)*0.5f+0.5f)*SCREEN_W;
                 float py = (cosf(GetTime()*0.0015f*(i%5+3)+i*2)*0.5f+0.5f)*SCREEN_H;
@@ -1809,7 +2099,6 @@ int main() {
             Color goCol = {255,50,50,(unsigned char)(255*goPulse)};
             int goW = MeasureText("GAME OVER", 50);
             DrawText("GAME OVER", SCREEN_W/2-goW/2, 180, 50, goCol);
-            // underline
             DrawRectangle(SCREEN_W/2-goW/2, 235, goW, 2, Color{255,50,50,100});
             
             Color scoreCol = COL_GOLD;
@@ -1824,7 +2113,6 @@ int main() {
         EndDrawing();
     }
     
-    // cleanup
     for (auto& e : enemies) delete e;
     for (auto& s : sounds) UnloadSound(s.second);
     CloseAudioDevice();
