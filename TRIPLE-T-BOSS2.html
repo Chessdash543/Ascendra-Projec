@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Tung Tung Sahur: O Pesadelo da Madrugada</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Courier New', Courier, monospace; }
+        #gameCanvas { width: 100vw; height: 100vh; display: block; }
+        #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        #crosshair {
+            position: absolute; top: 50%; left: 50%;
+            width: 24px; height: 24px;
+            transform: translate(-50%, -50%);
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: rgba(255,255,255,0.7);
+        }
+        #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+        #crosshair::after { width: 100%; height: 2px; top: 50%; transform: translateY(-50%); }
+        #crosshair-dot { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; background: #ff0; border-radius: 50%; transform: translate(-50%, -50%); }
+
+        #stats { position: absolute; top: 20px; left: 20px; color: white; font-size: 18px; text-shadow: 2px 2px 0 #000; }
+        #dashInfo { margin-top: 8px; font-size: 16px; color: #00ffff; }
+        .dash-charge { display: inline-block; width: 40px; height: 12px; border: 1px solid #00ffff; margin-right: 4px; background: #003333; }
+        .dash-charge.active { background: #00ffff; }
+        .dash-charge.recharging { background: #006666; }
+        
+        #bossStats { position: absolute; top: 20px; right: 20px; color: #ff4444; font-size: 22px; text-shadow: 2px 2px 0 #000; text-align: right; }
+        #bossHealthBarContainer { width: 350px; height: 25px; background: #1a0000; border: 2px solid #440000; margin-top: 5px; }
+        #bossHealthBar { width: 100%; height: 100%; background: linear-gradient(90deg, #ff0044, #ff2200); transition: width 0.1s; }
+        #bossAbilityAnnounce {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #ff4444; font-size: 36px; font-weight: bold; text-shadow: 0 0 20px #ff0000, 2px 2px 0 #000;
+            opacity: 0; transition: opacity 0.3s; pointer-events: none;
+        }
+
+        #playerHealthBarContainer { width: 250px; height: 18px; background: #111; border: 2px solid #333; margin-top: 5px; }
+        #playerHealthBar { width: 100%; height: 100%; background: linear-gradient(90deg, #00cc44, #00ff00); transition: width 0.1s; }
+
+        #blocker {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.9);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: white; pointer-events: auto; z-index: 10;
+        }
+        #instructions { text-align: center; font-size: 18px; max-width: 750px; }
+        .ability-list { text-align: left; margin: 10px auto; max-width: 600px; font-size: 15px; line-height: 1.6; }
+        .ability-list li { color: #ff8844; }
+        .btn { padding: 15px 30px; font-size: 20px; background: linear-gradient(135deg, #ff0044, #cc0033); color: white; border: none; cursor: pointer; margin-top: 20px; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; }
+        .btn:hover { background: linear-gradient(135deg, #ff2244, #ff0044); transform: scale(1.05); }
+
+        #damageOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 0, 0, 0.5); opacity: 0; pointer-events: none; transition: opacity 0.08s;
+        }
+        #lanternOverlay {
+            position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+            color: #ffcc00; font-size: 14px; opacity: 0.4; text-shadow: 1px 1px 0 #000;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+</head>
+<body>
+    <div id="ui">
+        <div id="crosshair"><div id="crosshair-dot"></div></div>
+        <div id="stats">
+            <div>🔥 <span id="playerHpText">100</span> HP</div>
+            <div id="playerHealthBarContainer"><div id="playerHealthBar"></div></div>
+            <div id="dashInfo">
+                DASH: <span id="dashDisplay"><span class="dash-charge active"></span><span class="dash-charge active"></span></span>
+                <span id="dashCooldownText" style="color:#88cccc; font-size:13px;"> [Shift]</span>
+            </div>
+        </div>
+        <div id="bossStats">
+            <div>TUNG TUNG SAHUR ☠</div>
+            <div id="bossHealthBarContainer"><div id="bossHealthBar"></div></div>
+            <div id="bossHpText" style="font-size:14px; color:#ff8888;"></div>
+        </div>
+        <div id="bossAbilityAnnounce"></div>
+        <div id="damageOverlay"></div>
+        <div id="lanternOverlay">🔦 LANTERNA ATIVA</div>
+    </div>
+
+    <div id="blocker">
+        <div id="instructions">
+            <h1 style="color: #ff0055; font-size: 42px; margin-bottom: 5px; text-shadow: 0 0 30px #ff0000;">TUNG TUNG SAHUR: MODO INFERNAL</h1>
+            <p style="font-size:16px; color:#ff8888;">O barulho quebra o tecido da realidade. Sobreviva.</p>
+            <div class="ability-list">
+                <b style="color:#fff;">NOVAS HABILIDADES DO BOSS:</b>
+                <ol>
+                    <li><b>Tiro</b> - Balas lentas teleguiadas (7s de perseguição)</li>
+                    <li><b>Tacada</b> - Boss golpeia com o bastão quando você usar dash perto</li>
+                    <li><b>Esmagamento Sísmico</b> - Teletransporta atrás/acima do jogador</li>
+                    <li><b>Onda Sonora</b> - Onda de choque no chão (PULE para evitar!)</li>
+                    <li><b>Spawn de Lacaios</b> - Invoca inimigos perseguidores</li>
+                    <li><b>Chuva Sonora</b> - Lasers do céu com pré-visualização</li>
+                </ol>
+            </div>
+            <p><b style="color:#00ffff;">NOVOS EQUIPAMENTOS:</b><br>
+            🔦 Lanterna | 💨 Dash duplo (Shift) 5s recarga cada</p>
+            <p><b>Controles:</b> WASD = Mover | Mouse = Olhar 360° | Espaço = Pular | Shift = Dash | Clique = Atirar</p>
+            <button class="btn" id="startButton">INICIAR COMBATE</button>
+        </div>
+    </div>
+
+<script>
+    // === CONFIGURAÇÃO THREE.JS ===
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x030308);
+    scene.fog = new THREE.FogExp2(0x030308, 0.004);
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 600);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+
+    // === ILUMINAÇÃO ===
+    const ambientLight = new THREE.AmbientLight(0x050510, 0.4);
+    scene.add(ambientLight);
+    const moonLight = new THREE.DirectionalLight(0x222244, 0.3);
+    moonLight.position.set(-50, 100, -50);
+    scene.add(moonLight);
+
+    // === LANTERNA DO JOGADOR ===
+    const lantern = new THREE.SpotLight(0xffeedd, 3, 120, Math.PI / 5, 0.7, 1.5);
+    lantern.position.set(0, 0, 0);
+    lantern.target.position.set(0, 0, -1);
+    lantern.castShadow = false;
+    const lanternGlow = new THREE.PointLight(0xffeedd, 0.8, 30);
+    scene.add(lantern);
+    scene.add(lantern.target);
+    scene.add(lanternGlow);
+
+    // === CONTROLES ===
+    const controls = new THREE.PointerLockControls(camera, document.body);
+    const blocker = document.getElementById('blocker');
+    const startButton = document.getElementById('startButton');
+    startButton.addEventListener('click', () => controls.lock());
+    controls.addEventListener('lock', () => blocker.style.display = 'none');
+    controls.addEventListener('unlock', () => blocker.style.display = 'flex');
+    scene.add(controls.getObject());
+
+    // === VARIÁVEIS DE ESTADO DO JOGADOR ===
+    let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+    let prevTime = performance.now();
+    const velocity = new THREE.Vector3();
+    const direction = new THREE.Vector3();
+    let playerHealth = 100;
+    let gameOver = false;
+    let gameTime = 0;
+
+    // === SISTEMA DE DASH ===
+    const MAX_DASHES = 2;
+    let dashCharges = MAX_DASHES;
+    let dashRechargeTimer = 0;
+    let isDashing = false;
+    let dashTimeLeft = 0;
+    const DASH_DURATION = 0.25;
+    const DASH_SPEED = 120;
+    const RECHARGE_TIME = 5;
+
+    function useDash() {
+        if (dashCharges <= 0 || isDashing) return;
+        dashCharges--;
+        isDashing = true;
+        dashTimeLeft = DASH_DURATION;
+        updateDashUI();
+        if (dashCharges < MAX_DASHES) dashRechargeTimer = RECHARGE_TIME;
+
+        const pos = controls.getObject().position;
+        const dir = new THREE.Vector3();
+        const hasInput = moveForward || moveBackward || moveLeft || moveRight;
+        if (hasInput) {
+            direction.z = Number(moveForward) - Number(moveBackward);
+            direction.x = Number(moveRight) - Number(moveLeft);
+            direction.normalize();
+            const euler = new THREE.Euler(0, camera.rotation.y, 0, 'YXZ');
+            dir.set(direction.x, 0, direction.z).applyEuler(euler).normalize();
+        } else {
+            camera.getWorldDirection(dir);
+            dir.y = 0;
+            dir.normalize();
+        }
+        velocity.x += dir.x * DASH_SPEED;
+        velocity.z += dir.z * DASH_SPEED;
+    }
+
+    // === ARENA EXPANDIDA ===
+    const ARENA_SIZE = 200;
+    const floorGeometry = new THREE.PlaneGeometry(ARENA_SIZE * 2, ARENA_SIZE * 2);
+    const floorMaterial = new THREE.MeshPhongMaterial({ color: 0x0a0a14, shininess: 5 });
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    const gridHelper = new THREE.GridHelper(ARENA_SIZE * 2, 80, 0x220044, 0x111133);
+    gridHelper.position.y = 0.1;
+    scene.add(gridHelper);
+
+    // Paredes com bordas brilhantes
+    const wallMat = new THREE.MeshBasicMaterial({ color: 0x220033, transparent: true, opacity: 0.3 });
+    const wallGeo = new THREE.BoxGeometry(ARENA_SIZE * 2, 50, 2);
+    const wallEdgeMat = new THREE.MeshBasicMaterial({ color: 0xff0055, wireframe: true });
+    function makeWall(x, z, rotY) {
+        const w = new THREE.Mesh(wallGeo, wallMat);
+        w.position.set(x, 25, z);
+        w.rotation.y = rotY || 0;
+        scene.add(w);
+        const we = new THREE.Mesh(wallGeo, wallEdgeMat);
+        we.position.copy(w.position);
+        we.rotation.copy(w.rotation);
+        scene.add(we);
+    }
+    makeWall(0, 0, -ARENA_SIZE);
+    makeWall(0, 0, ARENA_SIZE);
+    makeWall(-ARENA_SIZE, 0, Math.PI / 2);
+    makeWall(ARENA_SIZE, 0, Math.PI / 2);
+
+    // Obstáculos espalhados (pilares)
+    const pillarMat = new THREE.MeshPhongMaterial({ color: 0x222244, emissive: 0x111122 });
+    for (let i = 0; i < 12; i++) {
+        const p = new THREE.Mesh(new THREE.CylinderGeometry(2, 3, 8, 8), pillarMat);
+        let px, pz;
+        do {
+            px = (Math.random() - 0.5) * ARENA_SIZE * 1.6;
+            pz = (Math.random() - 0.5) * ARENA_SIZE * 1.6;
+        } while (Math.abs(px) < 15 && Math.abs(pz) < 15);
+        p.position.set(px, 4, pz);
+        p.castShadow = true;
+        scene.add(p);
+    }
+
+    // === O BOSS ===
+    const bossGroup = new THREE.Group();
+    const bossBody = new THREE.Mesh(
+        new THREE.CylinderGeometry(5, 6, 16, 12),
+        new THREE.MeshPhongMaterial({ color: 0xcc0033, emissive: 0x440011, shininess: 40 })
+    );
+    bossBody.position.y = 8;
+    bossBody.castShadow = true;
+    bossGroup.add(bossBody);
+
+    // Olhos do boss
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const eyePositions = [[-1.5, 12, 4.5], [1.5, 12, 4.5]];
+    eyePositions.forEach(e => {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 8), eyeMat);
+        eye.position.set(e[0], e[1], e[2]);
+        bossGroup.add(eye);
+    });
+
+    // Bastão do boss
+    const batonGroup = new THREE.Group();
+    const batonHandle = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.4, 0.5, 10, 8),
+        new THREE.MeshPhongMaterial({ color: 0x888888, emissive: 0x222222 })
+    );
+    batonHandle.rotation.z = Math.PI / 2;
+    batonHandle.position.x = 4.5;
+    batonGroup.add(batonHandle);
+    const batonTip = new THREE.Mesh(
+        new THREE.SphereGeometry(0.8, 8, 8),
+        new THREE.MeshBasicMaterial({ color: 0xff4444 })
+    );
+    batonTip.position.set(9.5, 0, 0);
+    batonGroup.add(batonTip);
+    batonGroup.position.set(0, 10, 0);
+    bossGroup.add(batonGroup);
+
+    bossGroup.position.set(0, 0, -50);
+    scene.add(bossGroup);
+    bossGroup.lookAt(0, 0, 0);
+
+    // Luz do boss
+    const bossLight = new THREE.PointLight(0xff0044, 2, 60);
+    scene.add(bossLight);
+
+    // === ESTADO DO BOSS ===
+    let bossState = 'idle';
+    let bossTimer = 1.5;
+    let bossHealth = 8000;
+    const MAX_BOSS_HP = 8000;
+    let bossTargetPos = new THREE.Vector3();
+    let bossSwinging = false;
+    let bossSwingTimer = 0;
+    let usedAbilities = [];
+    let lastAbility = '';
+
+    // Anúncio de habilidade
+    function announceAbility(name, color = '#ff4444') {
+        const el = document.getElementById('bossAbilityAnnounce');
+        el.textContent = name;
+        el.style.color = color;
+        el.style.opacity = 1;
+        el.style.textShadow = `0 0 30px ${color}, 2px 2px 0 #000`;
+        setTimeout(() => { el.style.opacity = 0; }, 1500);
+    }
+
+    // === LISTAS DE ENTIDADES ===
+    let minions = [];
+    let projectiles = [];
+    let homingProjectiles = [];
+    let shockwaves = [];
+    let laserRains = []; // { indicator, laser, life, active }
+    let telegraphs = [];
+
+    // === 1. TIRO: Balas teleguiadas lentas (7s) ===
+    function fireHomingBullets() {
+        announceAbility('⚡ TIRO TELEGUIADO ⚡', '#ff8800');
+        const count = 4 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < count; i++) {
+            setTimeout(() => {
+                if (gameOver) return;
+                const geo = new THREE.SphereGeometry(0.8, 12, 12);
+                const mat = new THREE.MeshBasicMaterial({ color: 0xff8800 });
+                const bullet = new THREE.Mesh(geo, mat);
+                bullet.position.copy(bossGroup.position);
+                bullet.position.y += 6;
+                const dir = new THREE.Vector3().subVectors(
+                    controls.getObject().position, bullet.position
+                ).normalize();
+                dir.y *= 0.3;
+                dir.normalize();
+                bullet.userData = {
+                    velocity: dir.clone().multiplyScalar(12),
+                    life: 7,
+                    turnSpeed: 1.8,
+                    speed: 12,
+                    damage: 10
+                };
+                scene.add(bullet);
+                homingProjectiles.push(bullet);
+            }, i * 250);
+        }
+    }
+
+    // === 2. TACADA: Golpe com bastão quando player dá dash perto ===
+    function triggerTacada() {
+        announceAbility('💥 TACADA DO BASTÃO 💥', '#ff0066');
+        bossSwinging = true;
+        bossSwingTimer = 0.6;
+        bossState = 'tacada';
+        bossTimer = 0.8;
+        const playerPos = controls.getObject().position;
+        bossGroup.lookAt(playerPos.x, bossGroup.position.y, playerPos.z);
+        const dist = bossGroup.position.distanceTo(playerPos);
+        if (dist < 20) {
+            const dir = new THREE.Vector3().subVectors(playerPos, bossGroup.position).normalize();
+            const dot = new THREE.Vector3(0, 0, -1).dot(dir);
+            if (dot > -0.3) {
+                takeDamage(22);
+            }
+        }
+    }
+
+    // === 3. ESMAGAMENTO SÍSMICO: Teleporta atrás/acima ===
+    function triggerEsmagamento() {
+        announceAbility('🌀 ESMAGAMENTO SÍSMICO 🌀', '#aa00ff');
+        bossState = 'esmagamento';
+        bossTimer = 2.0;
+        const playerPos = controls.getObject().position;
+        const behind = new THREE.Vector3().subVectors(playerPos, bossGroup.position).normalize();
+        const telePos = new THREE.Vector3(
+            playerPos.x + behind.x * 8,
+            55,
+            playerPos.z + behind.z * 8
+        );
+        bossGroup.position.copy(telePos);
+        bossGroup.position.y = 55;
+
+        // Telegrafo no chão
+        const telegraph = new THREE.Mesh(
+            new THREE.RingGeometry(0.5, 6, 24),
+            new THREE.MeshBasicMaterial({ color: 0xaa00ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+        );
+        telegraph.rotation.x = -Math.PI / 2;
+        telegraph.position.set(telePos.x, 0.5, telePos.z);
+        telegraph.userData = { life: 1.2, maxLife: 1.2 };
+        scene.add(telegraph);
+        telegraphs.push(telegraph);
+
+        // Sombra do boss no chão
+        const shadow = new THREE.Mesh(
+            new THREE.CircleGeometry(5, 16),
+            new THREE.MeshBasicMaterial({ color: 0xaa00ff, transparent: true, opacity: 0.3 })
+        );
+        shadow.rotation.x = -Math.PI / 2;
+        shadow.position.set(telePos.x, 0.2, telePos.z);
+        shadow.userData = { life: 1.2, maxLife: 1.2, follow: true };
+        scene.add(shadow);
+        telegraphs.push(shadow);
+    }
+
+    // === 4. ONDA SONORA: Onda de choque (pular para evitar) ===
+    function triggerOndaSonora() {
+        announceAbility('🌊 ONDA SONORA 🌊', '#00ddff');
+        bossState = 'onda';
+        bossTimer = 1.8;
+        bossGroup.position.y = 0;
+        setTimeout(() => {
+            if (gameOver) return;
+            bossGroup.position.y = 0;
+            const waveGeo = new THREE.RingGeometry(1, 3, 32);
+            const waveMat = new THREE.MeshBasicMaterial({
+                color: 0x00ddff,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.8
+            });
+            const wave = new THREE.Mesh(waveGeo, waveMat);
+            wave.rotation.x = Math.PI / 2;
+            wave.position.copy(bossGroup.position);
+            wave.position.y = 0.5;
+            wave.userData = { radius: 2, maxRadius: ARENA_SIZE * 1.2, speed: 55 };
+            scene.add(wave);
+            shockwaves.push(wave);
+        }, 400);
+    }
+
+    // === 5. SPAWN DE LACAIOS ===
+    function spawnMinions() {
+        announceAbility('👹 SPAWN DE LACAIOS 👹', '#ff6600');
+        bossState = 'spawn';
+        bossTimer = 2.5;
+        const count = 2 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < count; i++) {
+            setTimeout(() => {
+                if (gameOver) return;
+                const minion = new THREE.Mesh(
+                    new THREE.BoxGeometry(3.5, 4, 3.5),
+                    new THREE.MeshPhongMaterial({ color: 0x884400, emissive: 0x331100 })
+                );
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 8 + Math.random() * 10;
+                minion.position.set(
+                    bossGroup.position.x + Math.cos(angle) * dist,
+                    2,
+                    bossGroup.position.z + Math.sin(angle) * dist
+                );
+                minion.userData = { hp: 3, damage: 14, speed: 14 + Math.random() * 4 };
+                scene.add(minion);
+                minions.push(minion);
+            }, i * 300);
+        }
+    }
+
+    // === 6. CHUVA SONORA: Lasers do céu com pré-visualização ===
+    function triggerChuvaSonora() {
+        announceAbility('☄️ CHUVA SONORA ☄️', '#ff00ff');
+        bossState = 'chuva';
+        bossTimer = 3.0;
+        const playerPos = controls.getObject().position;
+        const laserCount = 8 + Math.floor(Math.random() * 6);
+
+        for (let i = 0; i < laserCount; i++) {
+            let lx, lz;
+            do {
+                lx = playerPos.x + (Math.random() - 0.5) * 50;
+                lz = playerPos.z + (Math.random() - 0.5) * 50;
+            } while (Math.abs(lx) > ARENA_SIZE - 5 || Math.abs(lz) > ARENA_SIZE - 5);
+
+            const delay = 0.5 + Math.random() * 1.2;
+
+            // Indicador no chão
+            const indicator = new THREE.Mesh(
+                new THREE.RingGeometry(0.3, 2.5, 16),
+                new THREE.MeshBasicMaterial({
+                    color: 0xff00ff,
+                    transparent: true,
+                    opacity: 0.3,
+                    side: THREE.DoubleSide
+                })
+            );
+            indicator.rotation.x = -Math.PI / 2;
+            indicator.position.set(lx, 0.3, lz);
+            indicator.userData = { life: delay, maxLife: delay, pulsing: true };
+            scene.add(indicator);
+            telegraphs.push(indicator);
+
+            // Laser que cai
+            setTimeout(() => {
+                if (gameOver) return;
+                const laserGeo = new THREE.CylinderGeometry(0.3, 2.5, 80, 8);
+                const laserMat = new THREE.MeshBasicMaterial({
+                    color: 0xff00ff,
+                    transparent: true,
+                    opacity: 0.7
+                });
+                const laser = new THREE.Mesh(laserGeo, laserMat);
+                laser.position.set(lx, 40, lz);
+                laser.userData = {
+                    falling: true,
+                    fallSpeed: 90,
+                    life: 1.5,
+                    damage: 18,
+                    hit: false
+                };
+                scene.add(laser);
+                laserRains.push(laser);
+            }, delay * 1000);
+        }
+    }
+
+    // === SISTEMA DE TIRO DO JOGADOR ===
+    const raycaster = new THREE.Raycaster();
+    document.addEventListener('mousedown', (event) => {
+        if (!controls.isLocked || gameOver) return;
+        if (event.button === 0) shootWeapon();
+    });
+
+    function shootWeapon() {
+        const material = new THREE.LineBasicMaterial({ color: 0x00ffff });
+        const points = [];
+        points.push(new THREE.Vector3(0.4, -0.3, -1).applyMatrix4(camera.matrixWorld));
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+        const targets = [bossGroup, ...minions];
+        const intersects = raycaster.intersectObjects(targets, true);
+
+        let endPoint = new THREE.Vector3();
+        raycaster.ray.at(ARENA_SIZE * 2, endPoint);
+
+        if (intersects.length > 0) {
+            endPoint = intersects[0].point;
+            let hitObj = intersects[0].object;
+            while (hitObj.parent && hitObj !== bossGroup && !minions.includes(hitObj)) {
+                hitObj = hitObj.parent;
+            }
+            if (hitObj === bossGroup) {
+                bossHealth -= 85;
+                bossBody.material.emissive.setHex(0x880000);
+                setTimeout(() => bossBody.material.emissive.setHex(0x440011), 80);
+                updateUI();
+                if (bossHealth <= 0) winGame();
+            } else if (minions.includes(hitObj)) {
+                hitObj.userData.hp -= 1;
+                hitObj.material.emissive.setHex(0x884400);
+                setTimeout(() => {
+                    if (hitObj.material) hitObj.material.emissive.setHex(0x331100);
+                }, 80);
+                if (hitObj.userData.hp <= 0) {
+                    scene.remove(hitObj);
+                    minions = minions.filter(m => m !== hitObj);
+                }
+            }
+        }
+
+        points.push(endPoint);
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const line = new THREE.Line(geometry, material);
+        scene.add(line);
+        lasers.push({ mesh: line, life: 0.08 });
+    }
+
+    let lasers = [];
+
+    // === SISTEMA DE DANO ===
+    function takeDamage(amount) {
+        if (gameOver) return;
+        if (isDashing) return;
+        playerHealth -= amount;
+        const overlay = document.getElementById('damageOverlay');
+        overlay.style.opacity = Math.min(1, overlay.style.opacity + 0.4);
+        setTimeout(() => overlay.style.opacity = 0, 150);
+        updateUI();
+        const dir = new THREE.Vector3();
+        camera.getWorldDirection(dir);
+        controls.getObject().position.addScaledVector(dir, -2);
+        if (playerHealth <= 0) loseGame();
+    }
+
+    function updateUI() {
+        document.getElementById('playerHpText').innerText = Math.max(0, Math.floor(playerHealth));
+        document.getElementById('playerHealthBar').style.width = Math.max(0, (playerHealth / 100) * 100) + '%';
+        const bossPct = Math.max(0, (bossHealth / MAX_BOSS_HP) * 100);
+        document.getElementById('bossHealthBar').style.width = bossPct + '%';
+        document.getElementById('bossHpText').innerText = `HP: ${Math.max(0, Math.floor(bossHealth))}/${MAX_BOSS_HP}`;
+        updateDashUI();
+    }
+
+    function updateDashUI() {
+        let html = '';
+        for (let i = 0; i < MAX_DASHES; i++) {
+            const cls = i < dashCharges ? 'active' : 'recharging';
+            html += `<span class="dash-charge ${cls}"></span>`;
+        }
+        document.getElementById('dashDisplay').innerHTML = html;
+        if (dashRechargeTimer > 0 && dashCharges < MAX_DASHES) {
+            document.getElementById('dashCooldownText').textContent =
+                ` [${dashRechargeTimer.toFixed(1)}s]`;
+        } else {
+            document.getElementById('dashCooldownText').textContent = ' [Shift]';
+        }
+    }
+
+    function winGame() {
+        gameOver = true;
+        controls.unlock();
+        document.getElementById('instructions').innerHTML =
+            `<h1 style='color: #00ffaa; font-size: 40px;'>VITÓRIA!</h1>
+            <p>Você destruiu o Tung Tung Sahur Supremo e salvou o silêncio do mundo!</p>
+            <button class='btn' onclick='location.reload()'>Jogar Novamente</button>`;
+        scene.remove(bossGroup);
+    }
+
+    function loseGame() {
+        gameOver = true;
+        controls.unlock();
+        document.getElementById('instructions').innerHTML =
+            `<h1 style='color: red; font-size: 40px;'>DERROTADO PELO BARULHO!</h1>
+            <p>O Tung Tung Sahur amassou seus tímpanos.</p>
+            <button class='btn' onclick='location.reload()'>Tentar Novamente</button>`;
+    }
+
+    // === TECLADO ===
+    document.addEventListener('keydown', (event) => {
+        switch (event.code) {
+            case 'KeyW': moveForward = true; break;
+            case 'KeyA': moveLeft = true; break;
+            case 'KeyS': moveBackward = true; break;
+            case 'KeyD': moveRight = true; break;
+            case 'Space':
+                if (controls.getObject().position.y <= 10.5) velocity.y += 160;
+                break;
+            case 'ShiftLeft':
+            case 'ShiftRight':
+                useDash();
+                break;
+        }
+    });
+    document.addEventListener('keyup', (event) => {
+        switch (event.code) {
+            case 'KeyW': moveForward = false; break;
+            case 'KeyA': moveLeft = false; break;
+            case 'KeyS': moveBackward = false; break;
+            case 'KeyD': moveRight = false; break;
+        }
+    });
+
+    controls.getObject().position.set(0, 10, 70);
+
+    // === LOOP PRINCIPAL ===
+    function animate() {
+        requestAnimationFrame(animate);
+        gameTime = performance.now();
+        const delta = Math.min((gameTime - prevTime) / 1000, 0.05);
+        prevTime = gameTime;
+
+        if (controls.isLocked && !gameOver) {
+            const pos = controls.getObject().position;
+
+            // Atrito e gravidade
+            velocity.x -= velocity.x * 8.0 * delta;
+            velocity.z -= velocity.z * 8.0 * delta;
+            velocity.y -= 9.8 * 50.0 * delta;
+
+            // Dash ativo
+            if (isDashing) {
+                dashTimeLeft -= delta;
+                if (dashTimeLeft <= 0) {
+                    isDashing = false;
+                }
+            }
+
+            // Recarga de dash
+            if (dashRechargeTimer > 0 && dashCharges < MAX_DASHES) {
+                dashRechargeTimer -= delta;
+                if (dashRechargeTimer <= 0) {
+                    dashCharges++;
+                    if (dashCharges < MAX_DASHES) dashRechargeTimer = RECHARGE_TIME;
+                    else dashRechargeTimer = 0;
+                    updateDashUI();
+                }
+            }
+
+            // Input de movimento
+            direction.z = Number(moveForward) - Number(moveBackward);
+            direction.x = Number(moveRight) - Number(moveLeft);
+            direction.normalize();
+            const speed = isDashing ? 80 : 420;
+            if (moveForward || moveBackward) velocity.z -= direction.z * speed * delta;
+            if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
+
+            controls.moveRight(-velocity.x * delta);
+            controls.moveForward(-velocity.z * delta);
+            pos.y += velocity.y * delta;
+
+            if (pos.y < 10) {
+                velocity.y = 0;
+                pos.y = 10;
+            }
+
+            // Barreiras
+            const limit = ARENA_SIZE - 5;
+            if (pos.x > limit) pos.x = limit;
+            if (pos.x < -limit) pos.x = -limit;
+            if (pos.z > limit) pos.z = limit;
+            if (pos.z < -limit) pos.z = -limit;
+
+            // === LANTERNA ===
+            const camDir = new THREE.Vector3();
+            camera.getWorldDirection(camDir);
+            lantern.position.copy(pos);
+            lantern.position.y += 1.5;
+            lantern.target.position.copy(pos).add(camDir.multiplyScalar(10));
+            lanternGlow.position.copy(pos);
+            lanternGlow.position.y += 1.5;
+
+            // === BOSS AI ===
+            updateBoss(delta);
+
+            // === HOMING PROJECTILES ===
+            for (let i = homingProjectiles.length - 1; i >= 0; i--) {
+                const p = homingProjectiles[i];
+                const playerPos = controls.getObject().position;
+                const toPlayer = new THREE.Vector3().subVectors(playerPos, p.position).normalize();
+                const currentDir = p.userData.velocity.clone().normalize();
+                const newDir = currentDir.lerp(toPlayer, p.userData.turnSpeed * delta).normalize();
+                p.userData.velocity = newDir.multiplyScalar(p.userData.speed);
+                p.position.add(p.userData.velocity.clone().multiplyScalar(delta));
+                p.userData.life -= delta;
+
+                if (p.position.distanceTo(playerPos) < 3) {
+                    takeDamage(p.userData.damage);
+                    scene.remove(p);
+                    homingProjectiles.splice(i, 1);
+                    continue;
+                }
+                if (p.userData.life <= 0) {
+                    scene.remove(p);
+                    homingProjectiles.splice(i, 1);
+                }
+            }
+
+            // === PROJÉTEIS NORMAIS ===
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const p = projectiles[i];
+                p.position.addScaledVector(p.userData.direction, p.userData.speed * delta);
+                p.userData.life -= delta;
+                if (p.position.distanceTo(pos) < 3) {
+                    takeDamage(12);
+                    scene.remove(p);
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+                if (p.userData.life <= 0) {
+                    scene.remove(p);
+                    projectiles.splice(i, 1);
+                }
+            }
+
+            // === SHOCKWAVES ===
+            for (let i = shockwaves.length - 1; i >= 0; i--) {
+                const sw = shockwaves[i];
+                sw.userData.radius += sw.userData.speed * delta;
+                sw.scale.set(sw.userData.radius, sw.userData.radius, 1);
+                sw.material.opacity = Math.max(0, 0.8 - (sw.userData.radius / sw.userData.maxRadius) * 0.6);
+                const dist = sw.position.distanceTo(pos);
+                if (Math.abs(dist - sw.userData.radius) < 3.5 && pos.y < 14) {
+                    takeDamage(16);
+                    scene.remove(sw);
+                    shockwaves.splice(i, 1);
+                    continue;
+                }
+                if (sw.userData.radius > sw.userData.maxRadius) {
+                    scene.remove(sw);
+                    shockwaves.splice(i, 1);
+                }
+            }
+
+            // === LASER RAIN (chuva sonora) ===
+            for (let i = laserRains.length - 1; i >= 0; i--) {
+                const l = laserRains[i];
+                if (l.userData.falling) {
+                    l.position.y -= l.userData.fallSpeed * delta;
+                    if (l.position.y <= 1) {
+                        l.position.y = 1;
+                        l.userData.falling = false;
+                        if (l.position.distanceTo(pos) < 4) {
+                            takeDamage(l.userData.damage);
+                            l.userData.hit = true;
+                        }
+                    }
+                }
+                l.userData.life -= delta;
+                l.material.opacity = Math.max(0, l.userData.life * 0.5);
+                if (l.userData.life <= 0) {
+                    scene.remove(l);
+                    laserRains.splice(i, 1);
+                }
+            }
+
+            // === TELEGRAPHS ===
+            for (let i = telegraphs.length - 1; i >= 0; i--) {
+                const t = telegraphs[i];
+                t.userData.life -= delta;
+                if (t.userData.pulsing) {
+                    const pulse = Math.sin(t.userData.life * 8) * 0.3 + 0.5;
+                    t.material.opacity = pulse * (t.userData.life / t.userData.maxLife);
+                    const scale = 1 + (1 - t.userData.life / t.userData.maxLife) * 0.5;
+                    t.scale.set(scale, scale, 1);
+                } else {
+                    t.material.opacity = t.userData.life / t.userData.maxLife;
+                }
+                if (t.userData.life <= 0) {
+                    scene.remove(t);
+                    telegraphs.splice(i, 1);
+                }
+            }
+
+            // === MINIONS ===
+            for (let i = minions.length - 1; i >= 0; i--) {
+                const m = minions[i];
+                const dir = new THREE.Vector3().subVectors(pos, m.position).normalize();
+                const targetAngle = Math.atan2(dir.x, dir.z);
+                m.rotation.y = targetAngle;
+                m.position.x += dir.x * m.userData.speed * delta;
+                m.position.z += dir.z * m.userData.speed * delta;
+                if (m.position.distanceTo(pos) < 4.5) {
+                    takeDamage(m.userData.damage);
+                    scene.remove(m);
+                    minions.splice(i, 1);
+                }
+            }
+
+            // === LASERS (arma do jogador) ===
+            for (let i = lasers.length - 1; i >= 0; i--) {
+                lasers[i].life -= delta;
+                if (lasers[i].life <= 0) {
+                    scene.remove(lasers[i].mesh);
+                    lasers.splice(i, 1);
+                }
+            }
+
+            // Colisão corpo do boss
+            if (bossGroup.position.distanceTo(pos) < 10) {
+                takeDamage(20 * delta);
+            }
+
+            // Posição da luz do boss
+            bossLight.position.copy(bossGroup.position);
+            bossLight.position.y += 8;
+
+            updateDashUI();
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    // === UPDATE BOSS ===
+    function updateBoss(delta) {
+        if (gameOver) return;
+        const playerPos = controls.getObject().position;
+
+        bossTimer -= delta;
+
+        // Tacada - verificar se player deu dash perto
+        if (isDashing && !bossSwinging && bossGroup.position.distanceTo(playerPos) < 22) {
+            triggerTacada();
+            return;
+        }
+
+        if (bossSwinging) {
+            bossSwingTimer -= delta;
+            batonGroup.rotation.z = Math.sin(bossSwingTimer * 12) * 2.5;
+            if (bossSwingTimer <= 0) {
+                bossSwinging = false;
+                batonGroup.rotation.z = 0;
+            }
+        }
+
+        if (bossTimer <= 0) {
+            bossState = 'idle';
+            const abilities = ['tiro', 'esmagamento', 'onda', 'spawn', 'chuva'];
+            let available = abilities.filter(a => a !== lastAbility);
+            const rand = available[Math.floor(Math.random() * available.length)];
+            lastAbility = rand;
+
+            switch (rand) {
+                case 'tiro':
+                    bossTimer = 2.5;
+                    bossState = 'tiro';
+                    fireHomingBullets();
+                    break;
+                case 'esmagamento':
+                    triggerEsmagamento();
+                    break;
+                case 'onda':
+                    triggerOndaSonora();
+                    break;
+                case 'spawn':
+                    spawnMinions();
+                    break;
+                case 'chuva':
+                    triggerChuvaSonora();
+                    break;
+            }
+        }
+
+        // Boss sempre olha pro jogador
+        bossGroup.lookAt(playerPos.x, bossGroup.position.y, playerPos.z);
+
+        // Flutuação (exceto durante esmagamento/onda)
+        if (bossState !== 'esmagamento' && bossState !== 'onda') {
+            bossGroup.position.y = Math.sin(gameTime * 0.005) * 2;
+        }
+
+        // Esmagamento: queda
+        if (bossState === 'esmagamento') {
+            if (bossGroup.position.y > 1) {
+                bossGroup.position.y -= 100 * delta;
+                if (bossGroup.position.y <= 1) {
+                    bossGroup.position.y = 1;
+                    // Impacto
+                    const waveGeo = new THREE.RingGeometry(1, 3, 32);
+                    const waveMat = new THREE.MeshBasicMaterial({
+                        color: 0xaa00ff, side: THREE.DoubleSide, transparent: true, opacity: 0.8
+                    });
+                    const wave = new THREE.Mesh(waveGeo, waveMat);
+                    wave.rotation.x = Math.PI / 2;
+                    wave.position.copy(bossGroup.position);
+                    wave.position.y = 0.5;
+                    wave.userData = { radius: 2, maxRadius: 40, speed: 60 };
+                    scene.add(wave);
+                    shockwaves.push(wave);
+
+                    if (bossGroup.position.distanceTo(playerPos) < 18) {
+                        takeDamage(30);
+                    }
+                    bossTimer = 1.0;
+                    bossState = 'idle';
+                }
+            }
+        }
+
+        // Onda sonora: boss no chão
+        if (bossState === 'onda') {
+            bossGroup.position.y = 0;
+        }
+    }
+
+    // Resize
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Iniciar
+    updateUI();
+    animate();
+</script>
+</body>
+</html>
