@@ -324,6 +324,7 @@ static bool devModeUnlocked = false;
 static int devWaveNumber = 1;
 static bool devBossEnabled = true;
 static int devMinionCount = 0;
+static bool devDebugBoss = false;
 static char menuInput[32] = "";
 static int menuInputLen = 0;
 
@@ -1035,7 +1036,7 @@ static void updateMinions(int dt) {
                 b.vel = dir * playerBulletSpeed;
                 b.speedMag = playerBulletSpeed;
                 b.r = 4;
-                b.homing = true;
+                b.tethered = (m.shootCooldown <= 100);
                 bullets.push_back(b);
                 spawnParticle(targetPos, {255,102,255,255}, 3);
             }
@@ -1125,7 +1126,7 @@ static void initUpgrades() {
             m.damage=playerDamage*0.3f; m.color={100,255,200,255};
             minions.push_back(m);
         }},
-        {"Orbitais Teleguiados", "2 orbitas com tiros teleguiados (300ms).", []{
+        {"Orbitais Rapidos", "2 orbitas com disparo rapido (300ms).", []{
             Minion m; m.angle=0; m.orbitDist=85; m.orbitSpeed=0.03f;
             m.shootTimer=0; m.shootCooldown=300;
             m.damage=playerDamage*0.4f; m.color={255,200,50,255};
@@ -1677,6 +1678,13 @@ int main() {
                     for (auto& e : enemies) delete e;
                     enemies.clear();
                 }
+                if (devModeUnlocked && devDebugBoss) {
+                    devDebugBoss = false;
+                    wave.number = TOTAL_WAVES;
+                    wave.minibossesDefeated = MINIBOSS_COUNT;
+                    wave.enemiesToSpawn = 0;
+                    wave.waitingNextWave = false;
+                }
             }
         } else if (gamePhase == PHASE_GAME || gamePhase == PHASE_UPGRADE) {
             if (IsKeyPressed(KEY_ENTER)) {
@@ -1847,7 +1855,7 @@ int main() {
                     if (graphicsMode!=GRAPHICS_LOW && b.trailCount<6) {
                         b.trail[b.trailCount++] = b.pos;
                     }
-                    if (b.homing) {
+                    if (b.homing && chosenAbility==ABILITY_BULLMASTER) {
                         Enemy* target = nullptr; float nd=1e9;
                         for (auto& e : enemies) {
                             float d = dist(b.pos, e->pos);
@@ -2110,6 +2118,9 @@ int main() {
                     }
                     DrawText(name, x, y2, 14, WHITE);
                     DrawText(valTxt, x+90, y2, 14, COL_GOLD);
+                }
+                if (btn(SCREEN_W/2-60, SCREEN_H-100, 120, 25, "DEBUG BOSS") && !gameStarted) {
+                    devDebugBoss = true;
                 }
                 playerHp = std::min(playerHp, playerMaxHp);
                 playerShieldHp = std::min(playerShieldHp, playerShieldMax);
