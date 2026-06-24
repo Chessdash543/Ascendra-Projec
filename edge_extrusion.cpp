@@ -323,6 +323,7 @@ struct WaveState {
 static bool devModeUnlocked = false;
 static int devWaveNumber = 1;
 static bool devBossEnabled = true;
+static int devMinionCount = 0;
 static char menuInput[32] = "";
 static int menuInputLen = 0;
 
@@ -1537,6 +1538,19 @@ static void resetGameState() {
     bullets.clear(); enemyBullets.clear(); particles.clear();
     shockwaves.clear(); bombs.clear(); blackholes.clear();
     enemies.clear(); minions.clear(); score = 0; playerTrailCount = 0;
+    if (devModeUnlocked && devMinionCount > 0) {
+        for (int i = 0; i < devMinionCount; i++) {
+            Minion m;
+            m.angle = (float)i / devMinionCount * M_PI * 2;
+            m.orbitDist = 80;
+            m.orbitSpeed = 0.03f;
+            m.shootTimer = 0;
+            m.shootCooldown = 600;
+            m.damage = playerDamage * 0.5f;
+            m.color = {255,200,50,255};
+            minions.push_back(m);
+        }
+    }
     applyAbilityPassives();
     wave.number = 0; wave.phase = WAVE_NORMAL;
     wave.minibossesDefeated = 0; wave.waitingNextWave = false;
@@ -1630,6 +1644,20 @@ int main() {
                 enemies.clear(); minions.clear(); score = 0; playerTrailCount = 0;
                 
                 applyAbilityPassives();
+                
+                if (devModeUnlocked && devMinionCount > 0) {
+                    for (int i = 0; i < devMinionCount; i++) {
+                        Minion m;
+                        m.angle = (float)i / devMinionCount * M_PI * 2;
+                        m.orbitDist = 80;
+                        m.orbitSpeed = 0.03f;
+                        m.shootTimer = 0;
+                        m.shootCooldown = 600;
+                        m.damage = playerDamage * 0.5f;
+                        m.color = {255,200,50,255};
+                        minions.push_back(m);
+                    }
+                }
                 
                 wave.number = 0; wave.phase = WAVE_NORMAL;
                 wave.minibossesDefeated = 0; wave.waitingNextWave = false;
@@ -2026,7 +2054,7 @@ int main() {
                 };
                 int colW = 220, rowH = 30;
                 int startX = SCREEN_W/2 - (3*colW)/2;
-                for (int i=0; i<10; i++) {
+                for (int i=0; i<11; i++) {
                     int col = i % 3;
                     int row = i / 3;
                     int x = startX + col*colW;
@@ -2074,6 +2102,10 @@ int main() {
                         case 9: name="Regeneracao"; snprintf(valTxt,32,"%.1f",playerRegen);
                             bx = x+160; if (btn(bx,y2,20,20,"-") && playerRegen>0) playerRegen-=0.5f;
                             if (btn(bx+22,y2,20,20,"+") && playerRegen<20) playerRegen+=0.5f;
+                            break;
+                        case 10: name="Minions"; snprintf(valTxt,32,"%d",devMinionCount);
+                            bx = x+160; if (btn(bx,y2,20,20,"-") && devMinionCount>0) devMinionCount--;
+                            if (btn(bx+22,y2,20,20,"+") && devMinionCount<10) devMinionCount++;
                             break;
                     }
                     DrawText(name, x, y2, 14, WHITE);
