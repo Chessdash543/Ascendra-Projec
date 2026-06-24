@@ -1034,7 +1034,7 @@ static void updateMinions(int dt) {
                 b.vel = dir * playerBulletSpeed;
                 b.speedMag = playerBulletSpeed;
                 b.r = 4;
-                b.tethered = (m.shootCooldown <= 100);
+                b.homing = true;
                 bullets.push_back(b);
                 spawnParticle(targetPos, {255,102,255,255}, 3);
             }
@@ -1123,6 +1123,16 @@ static void initUpgrades() {
             m.shootTimer=0; m.shootCooldown=100;
             m.damage=playerDamage*0.3f; m.color={100,255,200,255};
             minions.push_back(m);
+        }},
+        {"Orbitais Teleguiados", "2 orbitas com tiros teleguiados (300ms).", []{
+            Minion m; m.angle=0; m.orbitDist=85; m.orbitSpeed=0.03f;
+            m.shootTimer=0; m.shootCooldown=300;
+            m.damage=playerDamage*0.4f; m.color={255,200,50,255};
+            minions.push_back(m);
+            Minion m2; m2.angle=M_PI; m2.orbitDist=85; m2.orbitSpeed=0.03f;
+            m2.shootTimer=0; m2.shootCooldown=300;
+            m2.damage=playerDamage*0.4f; m2.color={255,200,50,255};
+            minions.push_back(m2);
         }}
     };
     laserUpgrades = {
@@ -1809,7 +1819,7 @@ int main() {
                     if (graphicsMode!=GRAPHICS_LOW && b.trailCount<6) {
                         b.trail[b.trailCount++] = b.pos;
                     }
-                    if (b.homing && chosenAbility==ABILITY_BULLMASTER) {
+                    if (b.homing) {
                         Enemy* target = nullptr; float nd=1e9;
                         for (auto& e : enemies) {
                             float d = dist(b.pos, e->pos);
@@ -1908,7 +1918,7 @@ int main() {
                     paused = true;
                     gamePhase = PHASE_UPGRADE;
                     std::vector<Upgrade>& pool = (chosenAbility == ABILITY_LASER) ? laserUpgrades : upgrades;
-                    bool useRare = !rareUpgrades.empty() && randf()<0.05f && chosenAbility != ABILITY_LASER;
+                    bool useRare = !rareUpgrades.empty() && randf()<0.20f && chosenAbility != ABILITY_LASER;
                     std::vector<Upgrade>& finalPool = useRare ? rareUpgrades : pool;
                     upgradePool = &finalPool;
                     int total = (int)finalPool.size();
@@ -2016,7 +2026,7 @@ int main() {
                 };
                 int colW = 220, rowH = 30;
                 int startX = SCREEN_W/2 - (3*colW)/2;
-                for (int i=0; i<9; i++) {
+                for (int i=0; i<10; i++) {
                     int col = i % 3;
                     int row = i / 3;
                     int x = startX + col*colW;
@@ -2060,6 +2070,10 @@ int main() {
                         case 8: name="Boss"; snprintf(valTxt,32,"%s",devBossEnabled?"Sim":"Nao");
                             bx = x+160;
                             if (btn(bx,y2,60,20,devBossEnabled?"Sim":"Nao")) devBossEnabled = !devBossEnabled;
+                            break;
+                        case 9: name="Regeneracao"; snprintf(valTxt,32,"%.1f",playerRegen);
+                            bx = x+160; if (btn(bx,y2,20,20,"-") && playerRegen>0) playerRegen-=0.5f;
+                            if (btn(bx+22,y2,20,20,"+") && playerRegen<20) playerRegen+=0.5f;
                             break;
                     }
                     DrawText(name, x, y2, 14, WHITE);
