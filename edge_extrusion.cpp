@@ -1968,12 +1968,15 @@ int main() {
             }
             // input fields
             if (mpShowIPInput) {
-                // click on IP or port field to focus
+                bool wantConnect = false;
+                // click on IP, port field, or connect button
                 if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                     bool hitIP = CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 336, 200, 28});
                     bool hitPort = CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 378, 100, 28});
+                    bool hitConnect = mpIP[0] && CheckCollisionPointRec(mpm, {SCREEN_W/2-50, 432, 100, 28});
                     if (hitPort) mpFocusPort = true;
                     else if (hitIP) mpFocusPort = false;
+                    wantConnect = hitConnect;
                 }
                 if (IsKeyPressed(KEY_TAB)) mpFocusPort = !mpFocusPort;
 
@@ -1996,8 +1999,7 @@ int main() {
                     if (mpFocusPort && mpPortLen > 0) mpPortStr[--mpPortLen] = 0;
                     else if (!mpFocusPort && mpIPLen > 0) mpIP[--mpIPLen] = 0;
                 }
-                bool connectClicked = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && mpIP[0] && CheckCollisionPointRec(mpm, {SCREEN_W/2-50, 432, 100, 28});
-                if ((IsKeyPressed(KEY_ENTER) || connectClicked) && mpIP[0]) {
+                if ((IsKeyPressed(KEY_ENTER) || wantConnect) && mpIP[0]) {
                     mpPort = atoi(mpPortStr);
                     if (mpPort <= 0) mpPort = 25565;
                     if (!mpNetInited) { mpNetInited = netInit(); }
