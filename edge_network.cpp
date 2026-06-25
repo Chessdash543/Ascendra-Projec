@@ -1,8 +1,16 @@
 #include "edge_network.h"
 #include <enet/enet.h>
 #include <cstdio>
-#include <cstdlib>
 #include <algorithm>
+#include <cstring>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#endif
 
 // ---- serialisation helpers ----
 static void w8(std::vector<uint8_t>& b, uint8_t v) { b.push_back(v); }
@@ -86,6 +94,24 @@ int  netGetClientCount() { return (int)gClients.size(); }
 void netSetLocalPlayerId(uint8_t id) { gLocalPlayerId = id; }
 uint8_t netGetLocalPlayerId() { return gLocalPlayerId; }
 bool netClientSentInput() { bool v = gClientSentInput; gClientSentInput = false; return v; }
+
+const char* netGetLocalIP() {
+    static char ip[64] = {0};
+    if (ip[0]) return ip;
+    char hostname[256] = {0};
+    if (gethostname(hostname, sizeof(hostname)) != 0)
+        return "127.0.0.1";
+    struct addrinfo hints, *res = nullptr;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(hostname, nullptr, &hints, &res) != 0 || !res)
+        return "127.0.0.1";
+    auto* sa = (struct sockaddr_in*)res->ai_addr;
+    inet_ntop(AF_INET, &sa->sin_addr, ip, sizeof(ip));
+    freeaddrinfo(res);
+    return ip[0] ? ip : "127.0.0.1";
+}
 
 void netTick() {
     if (gServer) {

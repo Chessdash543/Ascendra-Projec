@@ -69,3 +69,4 @@ void netBroadcastSnapshot(const Snapshot& snap);
 void netSetLocalPlayerId(uint8_t id);
 uint8_t netGetLocalPlayerId();
 bool netClientSentInput();
+const char* netGetLocalIP();

@@ -1560,7 +1560,7 @@ static void drawMpMenu() {
                  SCREEN_W/2-MeasureText("X", 16)/2, 480, 16, COL_GOLD);
     }
     if (mpHosting) {
-        DrawText(TextFormat("Porta %d | Jogadores: %d", mpPort, netGetClientCount()+1),
+        DrawText(TextFormat("IP: %s | Porta: %d | Jogadores: %d", netGetLocalIP(), mpPort, netGetClientCount()+1),
                  SCREEN_W/2-MeasureText("X", 14)/2, 340, 14, COL_GOLD);
     }
 
