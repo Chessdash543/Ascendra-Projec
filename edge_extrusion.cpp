@@ -12,8 +12,8 @@
 
 const int SCREEN_W = 1280;
 const int SCREEN_H = 720;
-const int WORLD_W = 2600;
-const int WORLD_H = 1800;
+const int WORLD_W = 5000;
+const int WORLD_H = 5000;
 const int TOTAL_WAVES = 15;
 const int MINIBOSS_COUNT = 3;
 const int BH_COOLDOWN = 6000;
@@ -99,7 +99,7 @@ struct Bullet {
 struct Minion {
     float angle, orbitDist, orbitSpeed;
     int shootTimer, shootCooldown;
-    float damage;
+    float damage, shootRange;
     Color color;
 };
 
@@ -174,7 +174,7 @@ static int overdriveDuration=2000, overdriveCooldown=20000, overdriveCooldownTim
 static bool speedBoostActive=false;
 static int speedBoostTimer=0, speedBoostDuration=2000, speedBoostCooldown=8000, speedBoostCooldownTimer=0;
 static bool piercingNext=false;
-static int shotCount=0, bhTimer=0;
+static int shotCount=0, bhTimer=0, fireTimer=0;
 static bool laserActive=false;
 static int laserTimer=0, laserDuration=3000, laserCooldown=5000, laserCooldownTimer=0;
 static float laserDamage=100, laserWidth=4;
@@ -325,6 +325,7 @@ static int devWaveNumber = 1;
 static bool devBossEnabled = true;
 static int devMinionCount = 0;
 static bool devDebugBoss = false;
+static int devDebugTarget = -1; // -1=none, 0=miniboss1, 1=miniboss2, 2=miniboss3, 3=boss
 static char menuInput[32] = "";
 static int menuInputLen = 0;
 
@@ -736,9 +737,137 @@ public:
         Vec2 toPlayer = playerPos - pos;
         float d = toPlayer.len();
         if (d<1) d=1;
-        if (d>200) {
+        if (d>200 && boss.phase != BP_TELEPORTBOMB) {
             pos.x += toPlayer.x/d*speed;
             pos.y += toPlayer.y/d*speed;
+        }
+
+        float hpPct = hp / maxHp;
+        int maxIdx = hpPct <= 0.25f ? 3 : hpPct <= 0.50f ? 2 : hpPct <= 0.75f ? 1 : 0;
+        float cdMul = 1.0f - maxIdx * 0.15f;
+
+        boss.phaseTimer += dt;
+
+        if (boss.phase == BP_COOLDOWN) {
+            boss.attackCooldown -= dt;
+            if (boss.attackCooldown <= 0) {
+                int phases[] = {BP_LASER360, BP_SUPERLASER, BP_TELEPORTBOMB, BP_QUANTUMLASER};
+                boss.phase = (BossPhase)phases[rand() % 4];
+                boss.phaseTimer = 0;
+                if (boss.phase == BP_SUPERLASER) {
+                    boss.superLaser.angle = atan2f(toPlayer.y, toPlayer.x);
+                    boss.superLaser.charging = true;
+                    boss.superLaser.timer = 0;
+                }
+                if (boss.phase == BP_TELEPORTBOMB) {
+                    boss.teleport.stage = "warning";
+                    boss.teleport.timer = 0;
+                }
+                if (boss.phase == BP_QUANTUMLASER) {
+                    boss.quantumLaser.phase = "forming";
+                    boss.quantumLaser.timer = 0;
+                }
+            }
+        } else if (boss.phase == BP_LASER360) {
+            float baseAngle = boss.phaseTimer * 0.002f;
+            if (boss.phaseTimer % 200 < 20) {
+                for (int i = 0; i < 12; i++) {
+                    float a = baseAngle + i * M_PI * 2 / 12;
+                    Bullet b;
+                    b.pos = pos; b.r = 6;
+                    b.vel = Vec2(cosf(a) * 6, sinf(a) * 6);
+                    b.speedMag = 6;
+                    b.damage = damage * 0.5f;
+                    enemyBullets.push_back(b);
+                }
+            }
+            if (boss.phaseTimer > 1200) {
+                boss.phase = BP_COOLDOWN;
+                boss.attackCooldown = (int)(1500 * cdMul);
+            }
+        } else if (boss.phase == BP_SUPERLASER) {
+            boss.superLaser.timer += dt;
+            if (boss.superLaser.charging) {
+                float flash = sinf(boss.superLaser.timer * 0.02f);
+                if (flash > 0) spawnParticle(pos, {255,255,0,255}, 1);
+                if (boss.superLaser.timer >= boss.superLaser.chargeDuration) {
+                    boss.superLaser.charging = false;
+                    boss.superLaser.timer = 0;
+                }
+            } else {
+                if (randf() < 0.3f) {
+                    float spread = (randf() - 0.5f) * 0.15f;
+                    float a = boss.superLaser.angle + spread;
+                    Bullet b;
+                    b.pos = pos + Vec2(cosf(boss.superLaser.angle), sinf(boss.superLaser.angle)) * 50;
+                    b.r = 7;
+                    b.vel = Vec2(cosf(a) * 10, sinf(a) * 10);
+                    b.speedMag = 10;
+                    b.damage = damage;
+                    enemyBullets.push_back(b);
+                }
+                if (boss.superLaser.timer >= boss.superLaser.fireDuration) {
+                    boss.phase = BP_COOLDOWN;
+                    boss.attackCooldown = (int)(1800 * cdMul);
+                }
+            }
+        } else if (boss.phase == BP_TELEPORTBOMB) {
+            boss.teleport.timer += dt;
+            if (boss.teleport.stage == "warning") {
+                if (boss.teleport.timer > 600) {
+                    boss.teleport.stage = "teleporting";
+                    boss.teleport.timer = 0;
+                    float a = randf() * M_PI * 2;
+                    float dist = 150 + randf() * 200;
+                    boss.teleport.targetX = clamp(playerPos.x + cosf(a) * dist, 100, WORLD_W - 100);
+                    boss.teleport.targetY = clamp(playerPos.y + sinf(a) * dist, 100, WORLD_H - 100);
+                    for (int i = 0; i < 3; i++) {
+                        Bomb bm;
+                        bm.pos = Vec2(boss.teleport.targetX, boss.teleport.targetY);
+                        bm.radius = 10; bm.maxRadius = 150; bm.life = 1;
+                        bm.exploded = false; bm.timer = 0; bm.fuseTime = 500 + i * 200;
+                        bm.isMini = true;
+                        bombs.push_back(bm);
+                    }
+                }
+            } else if (boss.teleport.stage == "teleporting") {
+                if (boss.teleport.timer > 200) {
+                    pos.x = boss.teleport.targetX;
+                    pos.y = boss.teleport.targetY;
+                    spawnParticles(pos, {255,77,255,255}, 15, 40);
+                    boss.teleport.stage = "none";
+                    boss.phase = BP_COOLDOWN;
+                    boss.attackCooldown = (int)(1200 * cdMul);
+                }
+            }
+        } else if (boss.phase == BP_QUANTUMLASER) {
+            boss.quantumLaser.timer += dt;
+            if (strcmp(boss.quantumLaser.phase, "forming") == 0) {
+                if (boss.quantumLaser.timer >= boss.quantumLaser.duration) {
+                    boss.quantumLaser.phase = "firing";
+                    boss.quantumLaser.timer = 0;
+                }
+            } else if (strcmp(boss.quantumLaser.phase, "firing") == 0) {
+                if (boss.quantumLaser.timer % 100 < 15) {
+                    float baseA = atan2f(toPlayer.y, toPlayer.x);
+                    for (int i = 0; i < 5; i++) {
+                        float spread = (i - 2) * 0.1f;
+                        float a = baseA + spread + (randf() - 0.5f) * 0.08f;
+                        Bullet b;
+                        b.pos = pos;
+                        b.r = 5;
+                        b.vel = Vec2(cosf(a) * 8, sinf(a) * 8);
+                        b.speedMag = 8;
+                        b.damage = damage * 0.4f;
+                        enemyBullets.push_back(b);
+                    }
+                }
+                if (boss.quantumLaser.timer >= boss.quantumLaser.fireDuration) {
+                    boss.phase = BP_COOLDOWN;
+                    boss.attackCooldown = (int)(2000 * cdMul);
+                    boss.quantumLaser.phase = "forming";
+                }
+            }
         }
     }
     
@@ -843,7 +972,6 @@ static void updateWaveLogic(int dt) {
             }
         } else if (enemies.empty() && !wave.waitingNextWave) {
             wave.waitingNextWave = true;
-            wave.number++;
             startNextWave();
         }
     } else if (wave.phase == WAVE_MINIBOSS) {
@@ -863,8 +991,17 @@ static void updateWaveLogic(int dt) {
 static void startNextWave() {
     wave.waitingNextWave = false;
     
-    if (wave.number < TOTAL_WAVES) {
-        wave.number++;
+    int nextWave = wave.number + 1;
+    
+    if (nextWave == 5 || nextWave == 10 || nextWave == 15) {
+        wave.number = nextWave;
+        wave.phase = WAVE_MINIBOSS;
+        spawnMiniboss();
+        wave.announcement = TextFormat("Onda %d/%d - MINI-CHEFE!", wave.number, TOTAL_WAVES);
+        wave.announcementTimer = 2500;
+        applyBiomeForCurrentWave();
+    } else if (nextWave <= TOTAL_WAVES) {
+        wave.number = nextWave;
         wave.phase = WAVE_NORMAL;
         wave.enemiesToSpawn = 8 + (int)(wave.number*4.5f);
         wave.spawnTimer = 0;
@@ -873,14 +1010,10 @@ static void startNextWave() {
         wave.announcementTimer = 2500;
         applyBiomeForCurrentWave();
         playSoundName("waveStart");
-    } else if (wave.minibossesDefeated < MINIBOSS_COUNT) {
-        wave.phase = WAVE_MINIBOSS;
-        spawnMiniboss();
-    } else {
+    } else if (wave.minibossesDefeated >= MINIBOSS_COUNT) {
         // boss fight
         if (devBossEnabled) {
             wave.phase = WAVE_BOSS_INTRO;
-            // create boss
             Boss* b = new Boss(Vec2(playerPos.x, playerPos.y-400));
             boss.obj = b;
             boss.bossPhaseIndex = 0;
@@ -896,6 +1029,9 @@ static void startNextWave() {
             wave.phase = WAVE_CLEARED;
             wave.waitingNextWave = false;
         }
+    } else {
+        wave.phase = WAVE_MINIBOSS;
+        spawnMiniboss();
     }
 }
 
@@ -905,7 +1041,8 @@ static void updateBlackHoleAbility(int dt) {
         auto& bh = blackholes[i];
         bh.timer += dt;
         if (bh.timer >= BH_DURATION) { blackholes.erase(blackholes.begin()+i); continue; }
-        for (auto& e : enemies) {
+        for (int ei=enemies.size()-1; ei>=0; ei--) {
+            Enemy* e = enemies[ei];
             float d = dist(e->pos, bh.pos);
             if (d < BH_RADIUS + e->r) {
                 float pull = 3 * (1 - d/(BH_RADIUS+e->r));
@@ -917,7 +1054,8 @@ static void updateBlackHoleAbility(int dt) {
                     score++;
                     playerXp += 8;
                     spawnParticles(e->pos, {122,0,255,255}, 10);
-                    // remove from enemies
+                    delete e;
+                    enemies.erase(enemies.begin()+ei);
                 }
             }
         }
@@ -996,6 +1134,7 @@ static void updateLaser(int dt, bool isPaused) {
                             score += 1;
                             playerXp += 8;
                             spawnParticles(e->pos, YELLOW, 10);
+                            if (e == boss.obj) boss.obj = nullptr;
                             delete e;
                             enemies.erase(enemies.begin()+i);
                         }
@@ -1013,6 +1152,7 @@ static void updateLaser(int dt, bool isPaused) {
 
 static void redistributeMinionAngles() {
     int n = minions.size();
+    if (n == 0) return;
     for (int i = 0; i < n; i++)
         minions[i].angle = (float)i / n * M_PI * 2;
 }
@@ -1035,7 +1175,7 @@ static void updateMinions(int dt) {
                 float d = dist(targetPos, e->pos);
                 if (d < nearDist) { nearDist = d; nearest = e; }
             }
-            if (nearest) {
+            if (nearest && nearDist < m.shootRange) {
                 Vec2 dir = (nearest->pos - targetPos).normalized();
                 Bullet b;
                 b.pos = targetPos;
@@ -1052,7 +1192,6 @@ static void updateMinions(int dt) {
 
 static void tryFire(int dt) {
     if (chosenAbility == ABILITY_LASER) return;
-    static int fireTimer = 0;
     int rate = playerFireRate;
     if (chosenAbility==ABILITY_OVERDRIVE && overdriveActive) rate = playerFireRate/3;
     fireTimer += dt;
@@ -1123,7 +1262,7 @@ static void initUpgrades() {
         {"Mini-Seguidor", "Adiciona +1 orbe que atira em inimigos.", []{
             Minion m; m.angle=0; m.orbitDist=60; m.orbitSpeed=0.03f;
             m.shootTimer=0; m.shootCooldown=(int)(playerFireRate*0.6f);
-            m.damage=playerDamage*0.6f; m.color={255,102,255,255};
+            m.damage=playerDamage*0.6f; m.shootRange=400; m.color={255,102,255,255};
             minions.push_back(m);
             redistributeMinionAngles();
         }}
@@ -1195,6 +1334,31 @@ static void drawWorld() {
         DrawRectangle(sx, sy-6, bw, bh, {20,20,20,200});
         DrawRectangle(sx, sy-6, bw*(o.hp/o.maxHp), bh, {77,255,122,200});
     }
+}
+
+static void drawMinimap() {
+    const float mmW = 200, mmH = 200;
+    const float mmX = SCREEN_W - mmW - 10, mmY = SCREEN_H - mmH - 10;
+    const float sx = mmW / WORLD_W, sy = mmH / WORLD_H;
+    DrawRectangle(mmX, mmY, mmW, mmH, {0, 0, 0, 150});
+    DrawRectangleLines(mmX, mmY, mmW, mmH, {100, 100, 130, 180});
+    for (auto& o : obstacles) {
+        float ox = mmX + o.x * sx, oy = mmY + o.y * sy;
+        float ow = o.w * sx, oh = o.h * sy;
+        if (ow < 1) ow = 1; if (oh < 1) oh = 1;
+        DrawRectangle(ox, oy, ow, oh, {60, 60, 80, 180});
+    }
+    float vx = mmX + camera.x * sx, vy = mmY + camera.y * sy;
+    DrawRectangleLines(vx, vy, SCREEN_W * sx, SCREEN_H * sy, {255, 255, 255, 80});
+    for (auto& e : enemies) {
+        float ex = mmX + e->pos.x * sx, ey = mmY + e->pos.y * sy;
+        Color c = e->isBoss() ? Color{255, 50, 50, 220} : Color{255, 100, 100, 180};
+        float rad = e->isBoss() ? 4 : 2;
+        DrawCircle(ex, ey, rad, c);
+    }
+    float px = mmX + playerPos.x * sx, py = mmY + playerPos.y * sy;
+    DrawCircle(px, py, 4, {42, 157, 244, 255});
+    DrawCircleLines(px, py, 5, {255, 255, 255, 100});
 }
 
 static void drawHUD() {
@@ -1531,8 +1695,9 @@ static void resetGameState() {
     overdriveTimer = 0; overdriveCooldownTimer = 0;
     speedBoostTimer = 0; speedBoostCooldownTimer = 0;
     laserTimer = 0; laserCooldownTimer = 0;
-    piercingNext = false; shotCount = 0; bhTimer = 0;
+    piercingNext = false; shotCount = 0; bhTimer = 0; fireTimer = 0;
     for (auto& e : enemies) delete e;
+    boss.obj = nullptr;
     bullets.clear(); enemyBullets.clear(); particles.clear();
     shockwaves.clear(); bombs.clear(); blackholes.clear();
     enemies.clear(); minions.clear(); score = 0; playerTrailCount = 0;
@@ -1545,6 +1710,7 @@ static void resetGameState() {
             m.shootTimer = 0;
             m.shootCooldown = 600;
             m.damage = playerDamage * 0.5f;
+            m.shootRange = 400;
             m.color = {255,200,50,255};
             minions.push_back(m);
         }
@@ -1559,7 +1725,7 @@ static void resetGameState() {
 
 int main() {
     srand(time(0));
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_FULLSCREEN_MODE);
     InitWindow(SCREEN_W, SCREEN_H, "Edge Extrusion");
     InitAudioDevice();
     SetTargetFPS(60);
@@ -1652,6 +1818,7 @@ int main() {
                         m.shootTimer = 0;
                         m.shootCooldown = 600;
                         m.damage = playerDamage * 0.5f;
+                        m.shootRange = 400;
                         m.color = {255,200,50,255};
                         minions.push_back(m);
                     }
@@ -1672,13 +1839,15 @@ int main() {
                         wave.announcementTimer = 2500;
                         applyBiomeForCurrentWave();
                     }
+                    boss.obj = nullptr;
                     for (auto& e : enemies) delete e;
                     enemies.clear();
                 }
-                if (devModeUnlocked && devDebugBoss) {
-                    devDebugBoss = false;
+                if (devModeUnlocked && devDebugTarget >= 0) {
+                    int target = devDebugTarget;
+                    devDebugTarget = -1;
                     wave.number = TOTAL_WAVES;
-                    wave.minibossesDefeated = MINIBOSS_COUNT;
+                    wave.minibossesDefeated = target == 3 ? MINIBOSS_COUNT : target;
                     wave.enemiesToSpawn = 0;
                     wave.waitingNextWave = false;
                 }
@@ -1735,12 +1904,14 @@ int main() {
                                             wave.announcementTimer = 2500;
                                             applyBiomeForCurrentWave();
                                         }
+                                        boss.obj = nullptr;
                                         for (auto& e : enemies) delete e;
                                         enemies.clear();
                                     }
                                 } else if (i==2) { // configuracoes
                                     settingsOpen = true;
                                 } else if (i==3) { // voltar ao menu
+                                    boss.obj = nullptr;
                                     for (auto& e : enemies) delete e;
                                     enemies.clear();
                                     gamePhase = PHASE_MENU; gameStarted = false;
@@ -1750,6 +1921,7 @@ int main() {
                     }
                 }
                 if (IsKeyPressed(KEY_R)) {
+                    boss.obj = nullptr;
                     for (auto& e : enemies) delete e;
                     enemies.clear();
                     resetGameState();
@@ -1888,6 +2060,7 @@ int main() {
                                 score += 1;
                                 playerXp += 8;
                                 spawnParticles(e->pos, YELLOW, 10);
+                                if (e == boss.obj) boss.obj = nullptr;
                                 delete e;
                                 enemies.erase(enemies.begin()+ei);
                             }
@@ -1904,7 +2077,18 @@ int main() {
                     auto& b = enemyBullets[i];
                     b.pos = b.pos + b.vel;
                     if (dist(b.pos, playerPos) < b.r + playerR) {
-                        playerHp -= 10;
+                        int dmg = 10;
+                        if (playerShieldHp > 0) {
+                            if (dmg <= playerShieldHp) {
+                                playerShieldHp -= dmg;
+                            } else {
+                                dmg -= playerShieldHp;
+                                playerShieldHp = 0;
+                                playerHp -= dmg;
+                            }
+                        } else {
+                            playerHp -= dmg;
+                        }
                         damageFlashTimer = 12;
                         if (playerHp <= 0) { playerHp=0; gamePhase=PHASE_GAMEOVER; damageFlashTimer=0; }
                         enemyBullets.erase(enemyBullets.begin()+i);
@@ -1948,11 +2132,13 @@ int main() {
                 }
                 if (graphicsMode==GRAPHICS_LOW && particles.size()>60)
                     particles.erase(particles.begin(), particles.begin()+(particles.size()-60));
+                else if (graphicsMode==GRAPHICS_MAX && particles.size()>500)
+                    particles.erase(particles.begin(), particles.begin()+(particles.size()-500));
                 
                 if (playerXp >= playerXpNeeded) {
                     playerXp = 0;
                     playerLevel++;
-                    playerXpNeeded += 50;
+                    playerXpNeeded = playerXpNeeded == 0 ? 50 : (int)(playerXpNeeded * 1.1f);
                     paused = true;
                     gamePhase = PHASE_UPGRADE;
                     std::vector<Upgrade>& pool = (chosenAbility == ABILITY_LASER) ? laserUpgrades : upgrades;
@@ -1998,8 +2184,10 @@ int main() {
                         if (upgradeCycleTimer / cycleSpeed % 2 == 0) {
                             int sz = upgradePool->size();
                             int a = rand()%sz, b = rand()%sz, c = rand()%sz;
-                            while (b == a) b = rand()%sz;
-                            while (c == a || c == b) c = rand()%sz;
+                            if (sz >= 3) {
+                                while (b == a) b = rand()%sz;
+                                while (c == a || c == b) c = rand()%sz;
+                            }
                             upgradeDisplay1 = a; upgradeDisplay2 = b; upgradeDisplay3 = c;
                         }
                     }
@@ -2013,20 +2201,20 @@ int main() {
                         int bx = startX + i*(boxW+15);
                         if (mp.x>=bx && mp.x<=bx+boxW && mp.y>=boxY && mp.y<=boxY+boxH) {
                             int choice = i==0?lastUpgradeChoice1:(i==1?lastUpgradeChoice2:lastUpgradeChoice3);
-                            if (choice>=0) (*upgradePool)[choice].apply();
+                            if (choice>=0 && choice<(int)upgradePool->size()) (*upgradePool)[choice].apply();
                             gamePhase = PHASE_GAME; paused = false;
                             break;
                         }
                     }
                 }
                 if (IsKeyPressed(KEY_ONE)) {
-                    if (lastUpgradeChoice1>=0) (*upgradePool)[lastUpgradeChoice1].apply();
+                    if (lastUpgradeChoice1>=0 && lastUpgradeChoice1<(int)upgradePool->size()) (*upgradePool)[lastUpgradeChoice1].apply();
                     gamePhase = PHASE_GAME; paused = false;
                 } else if (IsKeyPressed(KEY_TWO)) {
-                    if (lastUpgradeChoice2>=0) (*upgradePool)[lastUpgradeChoice2].apply();
+                    if (lastUpgradeChoice2>=0 && lastUpgradeChoice2<(int)upgradePool->size()) (*upgradePool)[lastUpgradeChoice2].apply();
                     gamePhase = PHASE_GAME; paused = false;
                 } else if (IsKeyPressed(KEY_THREE)) {
-                    if (lastUpgradeChoice3>=0) (*upgradePool)[lastUpgradeChoice3].apply();
+                    if (lastUpgradeChoice3>=0 && lastUpgradeChoice3<(int)upgradePool->size()) (*upgradePool)[lastUpgradeChoice3].apply();
                     gamePhase = PHASE_GAME; paused = false;
                 }
             }
@@ -2121,8 +2309,14 @@ int main() {
                     DrawText(name, x, y2, 14, WHITE);
                     DrawText(valTxt, x+90, y2, 14, COL_GOLD);
                 }
-                if (btn(SCREEN_W/2-60, SCREEN_H-100, 120, 25, "DEBUG BOSS") && !gameStarted) {
-                    devDebugBoss = true;
+                const char* targetNames[] = {"MINI 1","MINI 2","MINI 3","BOSS"};
+                int bw = 90, gap = 10;
+                int totalW = bw * 4 + gap * 3;
+                int btnStartX = SCREEN_W / 2 - totalW / 2;
+                for (int i = 0; i < 4; i++) {
+                    bool active = devDebugTarget == i;
+                    if (btn(btnStartX + i * (bw + gap), SCREEN_H - 100, bw, 25, active ? TextFormat("[%s]", targetNames[i]) : targetNames[i]) && !gameStarted)
+                        devDebugTarget = active ? -1 : i;
                 }
                 playerHp = std::min(playerHp, playerMaxHp);
                 playerShieldHp = std::min(playerShieldHp, playerShieldMax);
@@ -2235,7 +2429,8 @@ int main() {
             }
             
             drawHUD();
-            
+            drawMinimap();
+
             if (gamePhase == PHASE_UPGRADE) {
                 drawUpgradeMenu();
             }
