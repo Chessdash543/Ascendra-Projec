@@ -347,6 +347,7 @@ static bool mpShowIPInput = false;
 static bool mpFocusPort = false;
 static bool mpNetInited = false;
 static bool mpHostReady = false;
+static bool mpConnectFailed = false;
 
 static uint16_t mpInputSeq = 0;
 static uint16_t mpSnapSeq = 0;
@@ -1570,6 +1571,17 @@ static void drawMpMenu() {
     DrawRectangle(SCREEN_W/2-60, 520, 120, 30, bc2);
     DrawRectangleLines(SCREEN_W/2-60, 520, 120, 30, {150,80,80,150});
     DrawText("Voltar", SCREEN_W/2-22, 526, 16, {200,150,150,255});
+
+    // debug overlay
+    Vector2 dbgMouse = GetMousePosition();
+    DrawText(TextFormat("Mouse: %.0f,%.0f", dbgMouse.x, dbgMouse.y), 10, 10, 12, (Color){200,200,200,100});
+    DrawText(TextFormat("mpShowIPInput=%d mpIPLen=%d mpFocusPort=%d mpJoining=%d mpConnected=%d mpConnectFailed=%d",
+             mpShowIPInput, mpIPLen, mpFocusPort, mpJoining, mpConnected, mpConnectFailed),
+             10, 24, 10, (Color){200,200,200,80});
+    if (mpConnectFailed) {
+        DrawText("FALHA AO CONECTAR: verifique o IP e se o servidor esta rodando",
+                 SCREEN_W/2-MeasureText("X", 14)/2, 485, 14, RED);
+    }
 }
 
 static void drawMenu() {
@@ -1673,6 +1685,9 @@ static void drawLobby() {
         for (int i = 0; i < netGetClientCount(); i++) {
             DrawText(TextFormat("Jogador %d", i+2), SCREEN_W/2-50, 300+i*20, 14, WHITE);
         }
+    } else if (mpJoining && !mpConnected) {
+        DrawText("Conectando ao servidor...",
+                 SCREEN_W/2-MeasureText("Conectando ao servidor...", 14)/2, 280, 14, (Color){200,200,100,255});
     } else if (mpConnected) {
         DrawText("Conectado ao servidor! Escolha sua habilidade e pressione ESPACO",
                  SCREEN_W/2-MeasureText("X", 14)/2, 280, 14, COL_GOLD);
@@ -1683,6 +1698,13 @@ static void drawLobby() {
         DrawText("Aguardando outro jogador ficar pronto...",
                  SCREEN_W/2-MeasureText("Aguardando outro jogador ficar pronto...", 18)/2, 450, 18, pc);
     }
+
+    // back button
+    bool hb = CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-60, 520, 120, 30});
+    Color bc2 = hb ? Color{60,40,40,255} : Color{40,20,20,255};
+    DrawRectangle(SCREEN_W/2-60, 520, 120, 30, bc2);
+    DrawRectangleLines(SCREEN_W/2-60, 520, 120, 30, {150,80,80,150});
+    DrawText("Voltar", SCREEN_W/2-22, 526, 16, {200,150,150,255});
 }
 
 static void drawUpgradeMenu() {
@@ -1936,6 +1958,7 @@ int main() {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 if (CheckCollisionPointRec(mpM, {SCREEN_W/2-70, 440, 140, 30})) {
                     gamePhase = PHASE_MPMENU;
+                    mpConnectFailed = false;
                 }
             }
         } else if (gamePhase == PHASE_MPMENU) {
@@ -1963,6 +1986,7 @@ int main() {
                     mpShowIPInput = !mpShowIPInput;
                 }
                 if (CheckCollisionPointRec(mpm, {SCREEN_W/2-60, 520, 120, 30})) {
+                    if (mpHosting || mpJoining) { netCleanup(); mpHosting = mpJoining = mpConnected = false; mpNetInited = false; }
                     gamePhase = PHASE_MENU;
                     mpShowIPInput = false;
                     mpFocusPort = false;
@@ -2003,13 +2027,23 @@ int main() {
                     if (netConnect(mpIP, mpPort)) {
                         mpJoining = true;
                         mpHosting = false;
+                        mpConnectFailed = false;
+                        gamePhase = PHASE_LOBBY;
+                        chosenAbility = ABILITY_BULLMASTER;
+                    } else {
+                        mpConnectFailed = true;
                     }
                 }
             }
-            if (IsKeyPressed(KEY_ESCAPE)) { gamePhase = PHASE_MENU; mpShowIPInput = false; mpFocusPort = false; }
+            if (IsKeyPressed(KEY_ESCAPE)) { if (mpHosting || mpJoining) { netCleanup(); mpHosting = mpJoining = mpConnected = false; mpNetInited = false; } gamePhase = PHASE_MENU; mpShowIPInput = false; mpFocusPort = false; }
         } else if (gamePhase == PHASE_LOBBY) {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 Vector2 mp = GetMousePosition();
+                if (CheckCollisionPointRec(mp, {SCREEN_W/2-60, 520, 120, 30})) {
+                    if (mpJoining || mpHosting) { netCleanup(); mpHosting = mpJoining = mpConnected = false; mpNetInited = false; }
+                    mpShowIPInput = false; mpFocusPort = false;
+                    gamePhase = PHASE_MPMENU;
+                }
                 int abCount = 6;
                 int boxW = 165, boxH = 85, gap = 10;
                 int totalW = boxW*abCount + gap*(abCount-1);
@@ -2037,6 +2071,16 @@ int main() {
             }
             if (IsKeyPressed(KEY_D) && devModeUnlocked) {
                 devPanelOpen = !devPanelOpen;
+            }
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                if (mpJoining || mpHosting) {
+                    netCleanup();
+                    mpHosting = mpJoining = mpConnected = false;
+                    mpNetInited = false;
+                }
+                mpShowIPInput = false;
+                mpFocusPort = false;
+                gamePhase = PHASE_MPMENU;
             }
             if (IsKeyPressed(KEY_SPACE) && !devPanelOpen) {
                 paused = false;
