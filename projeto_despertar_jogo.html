@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Projeto Despertar - HTML</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #080d12;
+      color: #f2fbff;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: #0b1118;
+      cursor: crosshair;
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(5, 9, 13, 0.92);
+      z-index: 5;
+    }
+
+    .panel {
+      width: min(560px, calc(100vw - 32px));
+      border: 2px solid #16d8ff;
+      background: #101821;
+      padding: 24px;
+      text-align: center;
+      box-shadow: 0 0 0 4px rgba(22, 216, 255, 0.12);
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(28px, 6vw, 48px);
+      letter-spacing: 0;
+      color: #16d8ff;
+    }
+
+    .subtitle {
+      margin: 0 0 20px;
+      color: #dce8ef;
+      line-height: 1.45;
+    }
+
+    button {
+      min-width: 180px;
+      min-height: 44px;
+      border: 0;
+      background: #16d8ff;
+      color: #061016;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #74ebff;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" aria-label="Projeto Despertar"></canvas>
+
+  <div id="menu" class="overlay">
+    <div class="panel">
+      <h1>PROJETO DESPERTAR</h1>
+      <p class="subtitle">Unidade humanoide consciente em fuga do laboratorio militar.</p>
+      <button id="startButton">INICIAR TESTE</button>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const menu = document.getElementById("menu");
+    const startButton = document.getElementById("startButton");
+
+    const world = { w: 3200, h: 2200 };
+    const keys = new Set();
+    const mouse = { x: 0, y: 0, down: false };
+    const camera = { x: 0, y: 0, shake: 0 };
+    const bullets = [];
+    const enemies = [];
+    const pickups = [];
+    const sparks = [];
+    const obstacles = [];
+    const exitZone = { x: world.w - 330, y: world.h - 290, w: 210, h: 170 };
+    const audio = { ctx: null };
+
+    let mode = "menu";
+    let lastTime = performance.now();
+    let objectiveTimer = 0;
+
+    const player = {
+      x: 260,
+      y: 260,
+      r: 22,
+      hp: 120,
+      maxHp: 120,
+      shield: 80,
+      maxShield: 80,
+      speed: 270,
+      weapon: 0,
+      reloadUntil: 0,
+      lastFire: 0,
+      swordUntil: 0
+    };
+
+    const weapons = [
+      { name: "PISTOLA", damage: 24, cooldown: 210, mag: 16, magMax: 16, reserve: 96, pellets: 1, spread: 0.02, speed: 920, auto: false },
+      { name: "AK47", damage: 14, cooldown: 80, mag: 30, magMax: 30, reserve: 180, pellets: 1, spread: 0.055, speed: 980, auto: true },
+      { name: "ESCOPETA", damage: 11, cooldown: 520, mag: 8, magMax: 8, reserve: 48, pellets: 7, spread: 0.34, speed: 760, auto: false },
+      { name: "SNIPER", damage: 95, cooldown: 850, mag: 5, magMax: 5, reserve: 20, pellets: 1, spread: 0.003, speed: 1380, auto: false },
+      { name: "MACHINE GUN", damage: 12, cooldown: 52, mag: 70, magMax: 70, reserve: 280, pellets: 1, spread: 0.075, speed: 1020, auto: true }
+    ];
+
+    function resize() {
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width = Math.floor(innerWidth * dpr);
+      canvas.height = Math.floor(innerHeight * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function startAudio() {
+      if (!audio.ctx) {
+        audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+
+    function beep(freq, duration, type, gain) {
+      if (!audio.ctx) return;
+      const now = audio.ctx.currentTime;
+      const osc = audio.ctx.createOscillator();
+      const amp = audio.ctx.createGain();
+      osc.type = type || "square";
+      osc.frequency.value = freq;
+      amp.gain.setValueAtTime(gain || 0.04, now);
+      amp.gain.exponentialRampToValueAtTime(0.001, now + duration);
+      osc.connect(amp);
+      amp.connect(audio.ctx.destination);
+      osc.start(now);
+      osc.stop(now + duration);
+    }
+
+    function resetGame() {
+      player.x = 260;
+      player.y = 260;
+      player.hp = player.maxHp;
+      player.shield = player.maxShield;
+      player.weapon = 0;
+      player.reloadUntil = 0;
+      player.lastFire = 0;
+      player.swordUntil = 0;
+
+      weapons[0].mag = 16; weapons[0].reserve = 96;
+      weapons[1].mag = 30; weapons[1].reserve = 180;
+      weapons[2].mag = 8; weapons[2].reserve = 48;
+      weapons[3].mag = 5; weapons[3].reserve = 20;
+      weapons[4].mag = 70; weapons[4].reserve = 280;
+
+      bullets.length = 0;
+      enemies.length = 0;
+      pickups.length = 0;
+      sparks.length = 0;
+      obstacles.length = 0;
+
+      buildMap();
+      spawnEnemies();
+      spawnPickups();
+      objectiveTimer = 0;
+      mode = "playing";
+      menu.classList.add("hidden");
+    }
+
+    function buildMap() {
+      addWall(0, 0, world.w, 48);
+      addWall(0, world.h - 48, world.w, 48);
+      addWall(0, 0, 48, world.h);
+      addWall(world.w - 48, 0, 48, world.h);
+
+      addWall(430, 300, 720, 70);
+      addWall(1260, 240, 80, 520);
+      addWall(1560, 390, 680, 72);
+      addWall(380, 810, 110, 620);
+      addWall(730, 930, 860, 86);
+      addWall(1850, 840, 100, 660);
+      addWall(620, 1570, 700, 90);
+      addWall(1500, 1690, 780, 82);
+      addWall(2440, 1160, 145, 520);
+      addWall(2330, 530, 90, 360);
+      addWall(1040, 1320, 270, 70);
+    }
+
+    function addWall(x, y, w, h) {
+      obstacles.push({ x, y, w, h });
+    }
+
+    function spawnEnemies() {
+      [
+        [720, 590], [1030, 640], [1540, 620], [1980, 690],
+        [690, 1420], [1000, 1450], [1480, 1300], [1960, 1530],
+        [2510, 1480], [2720, 1770], [2700, 820], [2250, 1010]
+      ].forEach((p, index) => {
+        enemies.push({
+          x: p[0],
+          y: p[1],
+          r: index === 11 ? 34 : 20,
+          hp: index === 11 ? 220 : 70,
+          maxHp: index === 11 ? 220 : 70,
+          speed: index === 11 ? 110 : 145 + (index % 3) * 16,
+          hitTimer: 0,
+          dead: false,
+          miniBoss: index === 11
+        });
+      });
+    }
+
+    function spawnPickups() {
+      pickups.push({ x: 1180, y: 1220, type: "SNIPER" });
+      pickups.push({ x: 2190, y: 1760, type: "MACHINE GUN" });
+      pickups.push({ x: 2650, y: 960, type: "ENERGY SWORD" });
+      pickups.push({ x: 850, y: 1750, type: "AMMO" });
+      pickups.push({ x: 1800, y: 540, type: "SHIELD" });
+    }
+
+    function enemiesAlive() {
+      return enemies.filter(e => !e.dead).length;
+    }
+
+    function update(dt, now) {
+      if (mode !== "playing") return;
+
+      updatePlayer(dt, now);
+      updateEnemies(dt, now);
+      updateBullets(dt);
+      updatePickups(now);
+      updateSparks(dt);
+
+      if ((mouse.down && weapons[player.weapon].auto) || mouse.clicked) {
+        fire(now);
+        mouse.clicked = false;
+      }
+
+      if (enemiesAlive() === 0 && pointInRect(player.x, player.y, exitZone)) {
+        mode = "win";
+        menu.classList.remove("hidden");
+        menu.querySelector("h1").textContent = "NIVEL COMPLETO";
+        menu.querySelector(".subtitle").textContent = "A unidade escapou do setor de testes.";
+        startButton.textContent = "JOGAR DE NOVO";
+        beep(780, 0.16, "sine", 0.06);
+      }
+
+      if (player.hp <= 0) {
+        mode = "dead";
+        menu.classList.remove("hidden");
+        menu.querySelector("h1").textContent = "UNIDADE NEUTRALIZADA";
+        menu.querySelector(".subtitle").textContent = "O laboratorio recuperou o controle.";
+        startButton.textContent = "REINICIAR";
+        beep(95, 0.22, "sawtooth", 0.08);
+      }
+
+      objectiveTimer += dt;
+    }
+
+    function updatePlayer(dt, now) {
+      let dx = 0;
+      let dy = 0;
+      if (keys.has("w") || keys.has("arrowup")) dy -= 1;
+      if (keys.has("s") || keys.has("arrowdown")) dy += 1;
+      if (keys.has("a") || keys.has("arrowleft")) dx -= 1;
+      if (keys.has("d") || keys.has("arrowright")) dx += 1;
+
+      const len = Math.hypot(dx, dy) || 1;
+      const sprint = keys.has("shift") ? 1.45 : 1;
+      const nx = player.x + (dx / len) * player.speed * sprint * dt;
+      const ny = player.y + (dy / len) * player.speed * sprint * dt;
+
+      if (!circleHitsWalls(nx, player.y, player.r)) player.x = nx;
+      if (!circleHitsWalls(player.x, ny, player.r)) player.y = ny;
+
+      if (keys.has("r")) reload(now);
+      if (keys.has("f")) energyPunch(now);
+
+      for (let i = 0; i < 5; i++) {
+        if (keys.has(String(i + 1))) player.weapon = i;
+      }
+    }
+
+    function updateEnemies(dt, now) {
+      for (const enemy of enemies) {
+        if (enemy.dead) continue;
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const aggro = enemy.miniBoss ? 1150 : 850;
+
+        if (dist < aggro) {
+          const nx = enemy.x + (dx / dist) * enemy.speed * dt;
+          const ny = enemy.y + (dy / dist) * enemy.speed * dt;
+          if (!circleHitsWalls(nx, enemy.y, enemy.r)) enemy.x = nx;
+          if (!circleHitsWalls(enemy.x, ny, enemy.r)) enemy.y = ny;
+        }
+
+        if (dist < enemy.r + player.r + 8 && now > enemy.hitTimer) {
+          enemy.hitTimer = now + 440;
+          damagePlayer(enemy.miniBoss ? 18 : 10);
+          camera.shake = Math.max(camera.shake, 7);
+          sparksBurst(player.x, player.y, "#ff4255", 7);
+        }
+      }
+    }
+
+    function updateBullets(dt) {
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.life -= dt;
+
+        if (b.life <= 0 || pointHitsWalls(b.x, b.y)) {
+          sparksBurst(b.x, b.y, "#5ee9ff", 4);
+          bullets.splice(i, 1);
+          continue;
+        }
+
+        for (const enemy of enemies) {
+          if (enemy.dead) continue;
+          if (Math.hypot(enemy.x - b.x, enemy.y - b.y) < enemy.r + 7) {
+            enemy.hp -= b.damage;
+            sparksBurst(enemy.x, enemy.y, enemy.miniBoss ? "#ffcc44" : "#ff4255", 9);
+            camera.shake = Math.max(camera.shake, 3);
+            beep(520, 0.025, "square", 0.025);
+            if (enemy.hp <= 0) {
+              enemy.dead = true;
+              sparksBurst(enemy.x, enemy.y, "#16d8ff", 24);
+              beep(enemy.miniBoss ? 220 : 360, 0.12, "sawtooth", 0.05);
+            }
+            bullets.splice(i, 1);
+            break;
+          }
+        }
+      }
+    }
+
+    function updatePickups(now) {
+      for (let i = pickups.length - 1; i >= 0; i--) {
+        const p = pickups[i];
+        if (Math.hypot(player.x - p.x, player.y - p.y) > 42) continue;
+
+        if (p.type === "SNIPER") player.weapon = 3;
+        if (p.type === "MACHINE GUN") player.weapon = 4;
+        if (p.type === "ENERGY SWORD") player.swordUntil = now + 9000;
+        if (p.type === "AMMO") weapons.forEach(w => w.reserve += Math.ceil(w.magMax * 1.5));
+        if (p.type === "SHIELD") player.shield = player.maxShield;
+
+        sparksBurst(p.x, p.y, "#16d8ff", 18);
+        beep(880, 0.08, "sine", 0.04);
+        pickups.splice(i, 1);
+      }
+    }
+
+    function updateSparks(dt) {
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const s = sparks[i];
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.life -= dt;
+        if (s.life <= 0) sparks.splice(i, 1);
+      }
+    }
+
+    function fire(now) {
+      const w = weapons[player.weapon];
+      if (now < player.reloadUntil || now < player.lastFire + w.cooldown) return;
+      if (w.mag <= 0) {
+        reload(now);
+        return;
+      }
+
+      player.lastFire = now;
+      w.mag--;
+      camera.shake = Math.max(camera.shake, player.weapon === 3 ? 9 : 4);
+      beep(player.weapon === 3 ? 120 : 720, 0.035, "square", 0.035);
+
+      const aim = screenToWorld(mouse.x, mouse.y);
+      const base = Math.atan2(aim.y - player.y, aim.x - player.x);
+      for (let i = 0; i < w.pellets; i++) {
+        const angle = base + (Math.random() - 0.5) * w.spread;
+        bullets.push({
+          x: player.x + Math.cos(angle) * 28,
+          y: player.y + Math.sin(angle) * 28,
+          vx: Math.cos(angle) * w.speed,
+          vy: Math.sin(angle) * w.speed,
+          damage: w.damage,
+          life: player.weapon === 3 ? 1.65 : 0.9
+        });
+      }
+    }
+
+    function reload(now) {
+      const w = weapons[player.weapon];
+      if (now < player.reloadUntil || w.mag === w.magMax || w.reserve <= 0) return;
+      player.reloadUntil = now + 1050;
+      const need = w.magMax - w.mag;
+      const load = Math.min(need, w.reserve);
+      w.mag += load;
+      w.reserve -= load;
+      beep(300, 0.045, "triangle", 0.03);
+    }
+
+    function energyPunch(now) {
+      if (now < player.swordUntil) {
+        if (now < player.lastSword) return;
+        player.lastSword = now + 280;
+      } else {
+        if (now < player.lastPunch) return;
+        player.lastPunch = now + 420;
+      }
+
+      const aim = screenToWorld(mouse.x, mouse.y);
+      const angle = Math.atan2(aim.y - player.y, aim.x - player.x);
+      const reach = now < player.swordUntil ? 135 : 85;
+      const damage = now < player.swordUntil ? 72 : 32;
+
+      for (const enemy of enemies) {
+        if (enemy.dead) continue;
+        const dx = enemy.x - player.x;
+        const dy = enemy.y - player.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const dot = Math.cos(angle) * (dx / dist) + Math.sin(angle) * (dy / dist);
+        if (dist < reach && dot > 0.25) {
+          enemy.hp -= damage;
+          sparksBurst(enemy.x, enemy.y, now < player.swordUntil ? "#16d8ff" : "#ffffff", 16);
+          camera.shake = Math.max(camera.shake, 5);
+          beep(now < player.swordUntil ? 960 : 460, 0.055, "sawtooth", 0.04);
+          if (enemy.hp <= 0) enemy.dead = true;
+        }
+      }
+    }
+
+    function damagePlayer(amount) {
+      if (player.shield > 0) {
+        const block = Math.min(player.shield, amount);
+        player.shield -= block;
+        amount -= block;
+      }
+      player.hp -= amount;
+      beep(150, 0.06, "sawtooth", 0.045);
+    }
+
+    function render(now) {
+      const w = innerWidth;
+      const h = innerHeight;
+      updateCamera();
+      ctx.clearRect(0, 0, w, h);
+      ctx.save();
+      ctx.translate(-camera.x, -camera.y);
+
+      drawWorld();
+      drawExit();
+      drawObstacles();
+      drawPickups(now);
+      drawBullets();
+      drawEnemies();
+      drawPlayer(now);
+      drawSparks();
+
+      ctx.restore();
+      drawHud(now);
+      drawMinimap();
+    }
+
+    function updateCamera() {
+      let sx = 0;
+      let sy = 0;
+      if (camera.shake > 0) {
+        sx = (Math.random() - 0.5) * camera.shake;
+        sy = (Math.random() - 0.5) * camera.shake;
+        camera.shake *= 0.86;
+        if (camera.shake < 0.2) camera.shake = 0;
+      }
+      camera.x = clamp(player.x - innerWidth / 2 + sx, 0, world.w - innerWidth);
+      camera.y = clamp(player.y - innerHeight / 2 + sy, 0, world.h - innerHeight);
+    }
+
+    function drawWorld() {
+      ctx.fillStyle = "#0b1118";
+      ctx.fillRect(0, 0, world.w, world.h);
+      ctx.strokeStyle = "#163242";
+      ctx.lineWidth = 1;
+      for (let x = 0; x < world.w; x += 100) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, world.h);
+        ctx.stroke();
+      }
+      for (let y = 0; y < world.h; y += 100) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(world.w, y);
+        ctx.stroke();
+      }
+    }
+
+    function drawExit() {
+      ctx.fillStyle = enemiesAlive() === 0 ? "#16d8ff" : "#3b4b58";
+      ctx.fillRect(exitZone.x, exitZone.y, exitZone.w, exitZone.h);
+      ctx.strokeStyle = "#e8fbff";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(exitZone.x, exitZone.y, exitZone.w, exitZone.h);
+    }
+
+    function drawObstacles() {
+      for (const r of obstacles) {
+        ctx.fillStyle = "#344150";
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = "#159bd5";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+      }
+    }
+
+    function drawPickups(now) {
+      for (const p of pickups) {
+        const pulse = 5 + Math.sin(now / 180) * 3;
+        ctx.fillStyle = p.type === "SHIELD" ? "#5284ff" : p.type === "AMMO" ? "#ffd84c" : "#16d8ff";
+        ctx.fillRect(p.x - 16 - pulse / 2, p.y - 16 - pulse / 2, 32 + pulse, 32 + pulse);
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(p.x - 18, p.y - 18, 36, 36);
+      }
+    }
+
+    function drawBullets() {
+      ctx.fillStyle = "#a8f5ff";
+      for (const b of bullets) {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawEnemies() {
+      for (const e of enemies) {
+        if (e.dead) continue;
+        ctx.fillStyle = e.miniBoss ? "#941d2d" : "#c62e3e";
+        ctx.fillRect(e.x - e.r, e.y - e.r * 1.25, e.r * 2, e.r * 2.5);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(e.x - e.r * 0.45, e.y - e.r * 0.35, e.r * 0.9, e.r * 0.35);
+        ctx.fillStyle = "#101820";
+        ctx.fillRect(e.x - 24, e.y - e.r * 1.65, 48, 5);
+        ctx.fillStyle = e.miniBoss ? "#ffd84c" : "#ff5666";
+        ctx.fillRect(e.x - 24, e.y - e.r * 1.65, 48 * Math.max(0, e.hp / e.maxHp), 5);
+      }
+    }
+
+    function drawPlayer(now) {
+      const aim = screenToWorld(mouse.x, mouse.y);
+      const angle = Math.atan2(aim.y - player.y, aim.x - player.x);
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.rotate(angle);
+      ctx.fillStyle = "#d9e5eb";
+      ctx.fillRect(-19, -20, 38, 40);
+      ctx.fillStyle = "#16d8ff";
+      ctx.fillRect(8, -7, 26, 14);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(-8, -11, 14, 22);
+      if (now < player.swordUntil) {
+        ctx.fillStyle = "#16d8ff";
+        ctx.fillRect(30, -4, 96, 8);
+      }
+      ctx.restore();
+      ctx.strokeStyle = "#16d8ff";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.r + 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    function drawSparks() {
+      for (const s of sparks) {
+        ctx.fillStyle = s.color;
+        ctx.globalAlpha = Math.max(0, Math.min(1, s.life / 0.35));
+        ctx.fillRect(s.x - 2, s.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function drawHud(now) {
+      const margin = 18;
+      panel(margin, margin, 350, 136);
+      text("PROJETO DESPERTAR", margin + 16, margin + 27, 20, "#16d8ff", "bold");
+      bar("VIDA", player.hp, player.maxHp, margin + 16, margin + 50, "#15c9ff");
+      bar("SHIELD", player.shield, player.maxShield, margin + 16, margin + 78, "#527cff");
+      const w = weapons[player.weapon];
+      const reloadText = now < player.reloadUntil ? " | RELOAD" : "";
+      text(w.name + " " + w.mag + "/" + w.reserve + reloadText, margin + 16, margin + 119, 14, "#f2fbff", "bold");
+
+      const obj = enemiesAlive() > 0 ? "OBJETIVO: ROBOS RESTANTES " + enemiesAlive() : "OBJETIVO: SAIDA LIBERADA";
+      panel(18, innerHeight - 56, Math.min(520, innerWidth - 36), 38);
+      text(obj, 34, innerHeight - 31, 16, "#ffd84c", "bold");
+    }
+
+    function drawMinimap() {
+      const size = Math.min(170, innerWidth * 0.28);
+      const x = innerWidth - size - 18;
+      const y = 18;
+      panel(x, y, size, size);
+      const sx = size / world.w;
+      const sy = size / world.h;
+      ctx.fillStyle = "#16d8ff";
+      ctx.fillRect(x + exitZone.x * sx, y + exitZone.y * sy, Math.max(4, exitZone.w * sx), Math.max(4, exitZone.h * sy));
+      ctx.fillStyle = "#f2fbff";
+      ctx.fillRect(x + player.x * sx - 3, y + player.y * sy - 3, 6, 6);
+      ctx.fillStyle = "#ff4255";
+      for (const e of enemies) {
+        if (!e.dead) ctx.fillRect(x + e.x * sx - 2, y + e.y * sy - 2, e.miniBoss ? 7 : 5, e.miniBoss ? 7 : 5);
+      }
+      ctx.strokeStyle = "#16d8ff";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, size, size);
+    }
+
+    function panel(x, y, w, h) {
+      ctx.fillStyle = "rgba(5, 12, 18, 0.82)";
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = "#16d8ff";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, w, h);
+    }
+
+    function text(value, x, y, size, color, weight) {
+      ctx.fillStyle = color;
+      ctx.font = (weight || "normal") + " " + size + "px Arial";
+      ctx.fillText(value, x, y);
+    }
+
+    function bar(label, value, max, x, y, color) {
+      ctx.fillStyle = "#03070a";
+      ctx.fillRect(x, y, 250, 18);
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y, 250 * clamp(value / max, 0, 1), 18);
+      text(label + " " + Math.max(0, Math.ceil(value)) + "/" + max, x + 7, y + 14, 12, "#ffffff", "bold");
+    }
+
+    function circleHitsWalls(x, y, r) {
+      for (const rect of obstacles) {
+        const cx = clamp(x, rect.x, rect.x + rect.w);
+        const cy = clamp(y, rect.y, rect.y + rect.h);
+        if (Math.hypot(x - cx, y - cy) < r) return true;
+      }
+      return false;
+    }
+
+    function pointHitsWalls(x, y) {
+      return obstacles.some(r => pointInRect(x, y, r));
+    }
+
+    function pointInRect(x, y, r) {
+      return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    }
+
+    function screenToWorld(x, y) {
+      return { x: x + camera.x, y: y + camera.y };
+    }
+
+    function sparksBurst(x, y, color, amount) {
+      for (let i = 0; i < amount; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const s = 70 + Math.random() * 260;
+        sparks.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.18 + Math.random() * 0.32, color });
+      }
+    }
+
+    function clamp(v, min, max) {
+      return Math.max(min, Math.min(max, v));
+    }
+
+    function loop(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+      update(dt, now);
+      render(now);
+      requestAnimationFrame(loop);
+    }
+
+    addEventListener("resize", resize);
+    addEventListener("keydown", e => {
+      keys.add(e.key.toLowerCase());
+      if (["1", "2", "3", "4", "5", "r", "f", "shift"].includes(e.key.toLowerCase())) e.preventDefault();
+    });
+    addEventListener("keyup", e => keys.delete(e.key.toLowerCase()));
+    canvas.addEventListener("mousemove", e => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = e.clientX - rect.left;
+      mouse.y = e.clientY - rect.top;
+    });
+    canvas.addEventListener("mousedown", e => {
+      if (e.button === 0) {
+        mouse.down = true;
+        mouse.clicked = true;
+      }
+    });
+    canvas.addEventListener("mouseup", e => {
+      if (e.button === 0) mouse.down = false;
+    });
+    startButton.addEventListener("click", () => {
+      startAudio();
+      menu.querySelector("h1").textContent = "PROJETO DESPERTAR";
+      menu.querySelector(".subtitle").textContent = "Unidade humanoide consciente em fuga do laboratorio militar.";
+      startButton.textContent = "INICIAR TESTE";
+      resetGame();
+    });
+
+    resize();
+    buildMap();
+    spawnEnemies();
+    spawnPickups();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
