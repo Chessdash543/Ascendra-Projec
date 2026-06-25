@@ -158,7 +158,7 @@ struct Upgrade {
     void (*apply)();
 };
 
-static float playerMaxHp=100, playerHp=100, playerDamage=15;
+static float playerMaxHp=100, playerHp=100, playerDamage=5;
 static float playerSpeed=4, playerBaseSpeed=4;
 static int playerFireRate=400, playerBullets=1;
 static float playerBulletSpeed=8.8f;
