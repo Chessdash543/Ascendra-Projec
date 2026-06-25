@@ -1942,7 +1942,9 @@ int main() {
             Vector2 mpm = GetMousePosition();
             bool hostDisabled = mpShowIPInput || mpConnected;
             bool joinDisabled = mpHosting;
-            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            bool mpClick = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+            bool wantConnect = false;
+            if (mpClick) {
                 if (!hostDisabled && CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 220, 200, 40})) {
                     if (!mpHosting) {
                         if (!mpNetInited) { mpNetInited = netInit(); }
@@ -1965,19 +1967,14 @@ int main() {
                     mpShowIPInput = false;
                     mpFocusPort = false;
                 }
+                if (mpShowIPInput) {
+                    if (CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 336, 200, 28})) mpFocusPort = false;
+                    if (CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 378, 100, 28})) mpFocusPort = true;
+                    if (mpIP[0] && CheckCollisionPointRec(mpm, {SCREEN_W/2-50, 432, 100, 28})) wantConnect = true;
+                }
             }
             // input fields
             if (mpShowIPInput) {
-                bool wantConnect = false;
-                // click on IP, port field, or connect button
-                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                    bool hitIP = CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 336, 200, 28});
-                    bool hitPort = CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 378, 100, 28});
-                    bool hitConnect = mpIP[0] && CheckCollisionPointRec(mpm, {SCREEN_W/2-50, 432, 100, 28});
-                    if (hitPort) mpFocusPort = true;
-                    else if (hitIP) mpFocusPort = false;
-                    wantConnect = hitConnect;
-                }
                 if (IsKeyPressed(KEY_TAB)) mpFocusPort = !mpFocusPort;
 
                 int cc2 = GetCharPressed();
