@@ -1,3 +1,2 @@
 # Ascendra-Projec
-Projeto criado pelos manos ai
-std::cout<<"tem que fazer o que aqui??"<<std::endl;
+	IDE GAMES Labs e rapidos feitos em html e c++ 
