@@ -24,7 +24,7 @@ const int IDLE_LIMIT = 3000;
 const int IDLE_WARNING_AT = 2000;
 const float BOSS_MAX_HP = 400000.0f;
 const float BOSS_DEBUFF_THRESHOLD = 100000.0f;
-const char* BOSS_NAME = "REI CARMESIM, O DEVORADOR";
+const char* BOSS_NAME = "The Ultimate Boss";
 
 static inline float randf() { return (float)rand() / (float)RAND_MAX; }
 static inline float randRange(float a, float b) { return a + randf() * (b - a); }
@@ -163,7 +163,7 @@ static float playerSpeed=4, playerBaseSpeed=4;
 static int playerFireRate=400, playerBullets=1;
 static float playerBulletSpeed=8.8f;
 static float playerRegen=0, playerShieldMax=0, playerShieldHp=0;
-static int playerLevel=1, playerXp=0, playerXpNeeded=30;
+static int playerLevel=1, playerXp=0, playerXpNeeded=0;
 static int playerScore=0;
 static bool playerDashing=false, playerDashCD=false;
 static int playerDashTimer=0, playerDashDuration=150, playerDashCooldown=0, playerDashCooldownTime=1500;
@@ -1011,6 +1011,12 @@ static void updateLaser(int dt, bool isPaused) {
     }
 }
 
+static void redistributeMinionAngles() {
+    int n = minions.size();
+    for (int i = 0; i < n; i++)
+        minions[i].angle = (float)i / n * M_PI * 2;
+}
+
 static void updateMinions(int dt) {
     for (auto& m : minions) {
         m.angle += m.orbitSpeed;
@@ -1033,8 +1039,8 @@ static void updateMinions(int dt) {
                 Vec2 dir = (nearest->pos - targetPos).normalized();
                 Bullet b;
                 b.pos = targetPos;
-                b.vel = dir * playerBulletSpeed;
-                b.speedMag = playerBulletSpeed;
+                b.vel = dir * playerBulletSpeed * 0.6f;
+                b.speedMag = playerBulletSpeed * 0.6f;
                 b.r = 4;
                 b.tethered = (m.shootCooldown <= 100);
                 bullets.push_back(b);
@@ -1114,27 +1120,12 @@ static void initUpgrades() {
         }},
     };
     rareUpgrades = {
-        {"Mini-Seguidor", "Orbe que atira em inimigos.", []{
+        {"Mini-Seguidor", "Adiciona +1 orbe que atira em inimigos.", []{
             Minion m; m.angle=0; m.orbitDist=60; m.orbitSpeed=0.03f;
-            m.shootTimer=0; m.shootCooldown=800;
+            m.shootTimer=0; m.shootCooldown=(int)(playerFireRate*0.6f);
             m.damage=playerDamage*0.6f; m.color={255,102,255,255};
             minions.push_back(m);
-        }},
-        {"Mini-Tethered", "Mini-seguidor de tiro rapido com linha.", []{
-            Minion m; m.angle=randf()*M_PI*2; m.orbitDist=75; m.orbitSpeed=0.04f;
-            m.shootTimer=0; m.shootCooldown=100;
-            m.damage=playerDamage*0.3f; m.color={100,255,200,255};
-            minions.push_back(m);
-        }},
-        {"Orbitais Rapidos", "2 orbitas com disparo rapido (300ms).", []{
-            Minion m; m.angle=0; m.orbitDist=85; m.orbitSpeed=0.03f;
-            m.shootTimer=0; m.shootCooldown=300;
-            m.damage=playerDamage*0.4f; m.color={255,200,50,255};
-            minions.push_back(m);
-            Minion m2; m2.angle=M_PI; m2.orbitDist=85; m2.orbitSpeed=0.03f;
-            m2.shootTimer=0; m2.shootCooldown=300;
-            m2.damage=playerDamage*0.4f; m2.color={255,200,50,255};
-            minions.push_back(m2);
+            redistributeMinionAngles();
         }}
     };
     laserUpgrades = {
@@ -1234,6 +1225,12 @@ static void drawHUD() {
     DrawRectangle(26, hudY, 50*(playerStamina/playerMaxStamina), 8, COL_STAMINA);
     DrawRectangleLines(26, hudY, 50, 8, {80,120,80,100});
     hudY += 14;
+    
+    DrawText(TextFormat("Vel: %.1f", playerSpeed), 12, hudY, 11, {180,180,200,200}); hudY += 13;
+    DrawText(TextFormat("Tiros: %d", playerBullets), 12, hudY, 11, {180,180,200,200}); hudY += 13;
+    DrawText(TextFormat("Int: %dms", playerFireRate), 12, hudY, 11, {180,180,200,200}); hudY += 13;
+    DrawText(TextFormat("Dano: %.0f", playerDamage), 12, hudY, 11, {180,180,200,200}); hudY += 13;
+    DrawText(TextFormat("V.P: %.1f", playerBulletSpeed), 12, hudY, 11, {180,180,200,200}); hudY += 14;
     
     const char* waveText = "";
     const char* biomeName = biomes[currentBiomeIndex].name;
@@ -1527,7 +1524,7 @@ static void resetGameState() {
     playerHp = playerMaxHp;
     playerShieldHp = playerShieldMax;
     playerStamina = playerMaxStamina;
-    playerXp = 0; playerLevel = 1; playerXpNeeded = 30;
+    playerXp = 0; playerLevel = 1; playerXpNeeded = 0;
     playerDashCooldown = 0; playerContactCooldown = 0;
     if (!devModeUnlocked) { playerBullets = 1; }
     overdriveActive = false; speedBoostActive = false; laserActive = false;
@@ -1632,7 +1629,7 @@ int main() {
                 playerHp = playerMaxHp;
                 playerShieldHp = playerShieldMax;
                 playerStamina = playerMaxStamina;
-                playerXp = 0; playerLevel = 1; playerXpNeeded = 30;
+                playerXp = 0; playerLevel = 1; playerXpNeeded = 0;
                 playerDashCooldown = 0; playerContactCooldown = 0;
                 if (!devModeUnlocked) { playerBullets = 1; }
                 overdriveActive = false; speedBoostActive = false; laserActive = false;
@@ -1840,6 +1837,7 @@ int main() {
                 
                 if (moveX!=0||moveY!=0) playerAngle = atan2f(moveY, moveX);
                 
+                if (damageFlashTimer>0) damageFlashTimer--;
                 if (playerDashCooldown>0) playerDashCooldown -= dt;
                 if (playerStamina<playerMaxStamina) playerStamina = std::min(playerMaxStamina, playerStamina+playerStaminaRegen);
                 
@@ -1875,9 +1873,11 @@ int main() {
                     }
                     if (hitWall) { bullets.erase(bullets.begin()+i); continue; }
                     
+                    bool bulletHit = false;
                     for (int ei=enemies.size()-1; ei>=0; ei--) {
                         auto& e = enemies[ei];
                         if (dist(b.pos, e->pos) < b.r + e->r) {
+                            bulletHit = true;
                             e->takeDamage(playerDamage);
                             if (!b.piercing) { bullets.erase(bullets.begin()+i); }
                             else { b.piercingHits++; if(b.piercingHits>=b.piercingMaxHits) bullets.erase(bullets.begin()+i); }
@@ -1894,6 +1894,7 @@ int main() {
                             break;
                         }
                     }
+                    if (bulletHit) continue;
                     
                     if (b.pos.x<-100||b.pos.x>WORLD_W+100||b.pos.y<-100||b.pos.y>WORLD_H+100)
                         bullets.erase(bullets.begin()+i);
@@ -1904,7 +1905,8 @@ int main() {
                     b.pos = b.pos + b.vel;
                     if (dist(b.pos, playerPos) < b.r + playerR) {
                         playerHp -= 10;
-                        if (playerHp <= 0) { playerHp=0; gamePhase=PHASE_GAMEOVER; }
+                        damageFlashTimer = 12;
+                        if (playerHp <= 0) { playerHp=0; gamePhase=PHASE_GAMEOVER; damageFlashTimer=0; }
                         enemyBullets.erase(enemyBullets.begin()+i);
                         continue;
                     }
@@ -1932,8 +1934,8 @@ int main() {
                             }
                             spawnParticles(playerPos, {255,50,50,255}, 6, 20);
                             playerContactCooldown = 500;
-                            damageFlashTimer = 8;
-                            if (playerHp <= 0) { playerHp=0; gamePhase=PHASE_GAMEOVER; }
+                            damageFlashTimer = 12;
+                            if (playerHp <= 0) { playerHp=0; gamePhase=PHASE_GAMEOVER; damageFlashTimer=0; }
                             break;
                         }
                     }
@@ -1950,7 +1952,7 @@ int main() {
                 if (playerXp >= playerXpNeeded) {
                     playerXp = 0;
                     playerLevel++;
-                    playerXpNeeded = (int)(playerXpNeeded*1.35f);
+                    playerXpNeeded += 50;
                     paused = true;
                     gamePhase = PHASE_UPGRADE;
                     std::vector<Upgrade>& pool = (chosenAbility == ABILITY_LASER) ? laserUpgrades : upgrades;
@@ -1975,11 +1977,11 @@ int main() {
                 }
                 
                 updateWaveLogic(dt);
+                updateMinions(dt);
             }
             
             updateOverdrive(dt);
             updateSpeedBoost(dt);
-            updateMinions(dt);
             updateBlackHoleAbility(dt);
             updateLaser(dt, paused);
             
@@ -2201,16 +2203,21 @@ int main() {
                 DrawLineEx({psx, psy}, {ex, ey}, laserWidth*3, glow);
                 DrawLineEx({psx, psy}, {ex, ey}, laserWidth, core);
             }
+            Color playerCol = damageFlashTimer>0 ? WHITE : Color{42,157,244,255};
+            Color innerCol = damageFlashTimer>0 ? Color{255,200,200,255} : Color{155,232,255,255};
             if (graphicsMode!=GRAPHICS_LOW) {
-                DrawCircle(psx, psy, playerR+6, {42,157,244,40});
-                DrawCircle(psx, psy, playerR+12, {42,157,244,15});
+                DrawCircle(psx, psy, playerR+6, {playerCol.r,playerCol.g,playerCol.b,40});
+                DrawCircle(psx, psy, playerR+12, {playerCol.r,playerCol.g,playerCol.b,15});
             }
-            DrawCircle(psx, psy, playerR, {42,157,244,255});
-            DrawCircle(psx-4, psy-4, playerR*0.45f, {155,232,255,255});
+            DrawCircle(psx, psy, playerR, playerCol);
+            DrawCircle(psx-4, psy-4, playerR*0.45f, innerCol);
             
             for (auto& m : minions) {
                 float mx = toScreenX(playerPos.x + cosf(m.angle)*m.orbitDist);
                 float my = toScreenY(playerPos.y + sinf(m.angle)*m.orbitDist);
+                if (m.shootCooldown <= 100) {
+                    DrawLineEx({mx,my}, {psx,psy}, 1.5f, {m.color.r,m.color.g,m.color.b,60});
+                }
                 DrawCircle(mx, my, 8, m.color);
                 DrawCircle(mx-2, my-2, 3, {255,255,255,128});
             }
@@ -2256,6 +2263,11 @@ int main() {
             float ba = 0.4f+sinf(GetTime()*0.003f)*0.4f;
             Color hintC = {180,180,200,(unsigned char)(ba*255)};
             DrawText("ESPACO para voltar ao menu", SCREEN_W/2-MeasureText("ESPACO para voltar ao menu", 18)/2, 380, 18, hintC);
+        }
+        
+        if (damageFlashTimer > 0 && (gamePhase == PHASE_GAME || gamePhase == PHASE_UPGRADE)) {
+            float alpha = (damageFlashTimer / 12.0f) * 50;
+            DrawRectangle(0, 0, SCREEN_W, SCREEN_H, {255, 0, 0, (unsigned char)alpha});
         }
         
         EndDrawing();
