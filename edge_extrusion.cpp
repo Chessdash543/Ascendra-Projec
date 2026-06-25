@@ -1544,13 +1544,20 @@ static void drawMpMenu() {
         DrawText(mpPortStr[0]?mpPortStr:"...", SCREEN_W/2-92, 382, 15, WHITE);
         if (mpFocusPort) DrawText("_", SCREEN_W/2-92+MeasureText(mpPortStr,15), 382, 15, (Color){200,200,100,(unsigned char)(120+int(sinf(GetTime()*0.004f)*60))});
 
-        DrawText("TAB para alternar, ENTER para conectar", SCREEN_W/2-MeasureText("TAB para alternar, ENTER para conectar", 13)/2, 420, 13, {180,180,200,150});
+        DrawText("TAB para alternar, ENTER para conectar", SCREEN_W/2-MeasureText("TAB para alternar, ENTER para conectar", 13)/2, 412, 13, {180,180,200,150});
+
+        // connect button
+        bool hc = mpIP[0] && CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-50, 432, 100, 28});
+        Color cc2 = hc ? Color{50,80,50,255} : Color{30,50,30,255};
+        DrawRectangle(SCREEN_W/2-50, 432, 100, 28, cc2);
+        DrawRectangleLines(SCREEN_W/2-50, 432, 100, 28, mpIP[0]?(Color){100,200,100,150}:(Color){50,50,50,100});
+        DrawText("Conectar", SCREEN_W/2-28, 437, 14, mpIP[0]?WHITE:(Color){80,80,80,255});
     }
 
     // status info
     if (mpConnected) {
         DrawText(TextFormat("Conectado! Jogadores: %d", netGetClientCount()+1),
-                 SCREEN_W/2-MeasureText("X", 16)/2, 410, 16, COL_GOLD);
+                 SCREEN_W/2-MeasureText("X", 16)/2, 480, 16, COL_GOLD);
     }
     if (mpHosting) {
         DrawText(TextFormat("Porta %d | Jogadores: %d", mpPort, netGetClientCount()+1),
@@ -1558,11 +1565,11 @@ static void drawMpMenu() {
     }
 
     // back button
-    bool hb = CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-60, 480, 120, 30});
+    bool hb = CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-60, 520, 120, 30});
     Color bc2 = hb ? Color{60,40,40,255} : Color{40,20,20,255};
-    DrawRectangle(SCREEN_W/2-60, 480, 120, 30, bc2);
-    DrawRectangleLines(SCREEN_W/2-60, 480, 120, 30, {150,80,80,150});
-    DrawText("Voltar", SCREEN_W/2-22, 486, 16, {200,150,150,255});
+    DrawRectangle(SCREEN_W/2-60, 520, 120, 30, bc2);
+    DrawRectangleLines(SCREEN_W/2-60, 520, 120, 30, {150,80,80,150});
+    DrawText("Voltar", SCREEN_W/2-22, 526, 16, {200,150,150,255});
 }
 
 static void drawMenu() {
@@ -1953,7 +1960,7 @@ int main() {
                 if (!joinDisabled && CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 280, 200, 40})) {
                     mpShowIPInput = !mpShowIPInput;
                 }
-                if (CheckCollisionPointRec(mpm, {SCREEN_W/2-60, 480, 120, 30})) {
+                if (CheckCollisionPointRec(mpm, {SCREEN_W/2-60, 520, 120, 30})) {
                     gamePhase = PHASE_MENU;
                     mpShowIPInput = false;
                     mpFocusPort = false;
@@ -1989,7 +1996,8 @@ int main() {
                     if (mpFocusPort && mpPortLen > 0) mpPortStr[--mpPortLen] = 0;
                     else if (!mpFocusPort && mpIPLen > 0) mpIP[--mpIPLen] = 0;
                 }
-                if (IsKeyPressed(KEY_ENTER) && mpIP[0]) {
+                bool connectClicked = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && mpIP[0] && CheckCollisionPointRec(mpm, {SCREEN_W/2-50, 432, 100, 28});
+                if ((IsKeyPressed(KEY_ENTER) || connectClicked) && mpIP[0]) {
                     mpPort = atoi(mpPortStr);
                     if (mpPort <= 0) mpPort = 25565;
                     if (!mpNetInited) { mpNetInited = netInit(); }
