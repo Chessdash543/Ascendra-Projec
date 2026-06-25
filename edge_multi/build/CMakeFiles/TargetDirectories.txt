@@ -1,0 +1,4 @@
+/home/ryanv/Documents/GitHub/Ascendra-Projec/edge_multi/build/CMakeFiles/server.dir
+/home/ryanv/Documents/GitHub/Ascendra-Projec/edge_multi/build/CMakeFiles/client.dir
+/home/ryanv/Documents/GitHub/Ascendra-Projec/edge_multi/build/CMakeFiles/edit_cache.dir
+/home/ryanv/Documents/GitHub/Ascendra-Projec/edge_multi/build/CMakeFiles/rebuild_cache.dir

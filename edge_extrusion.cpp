@@ -1,4 +1,4 @@
-// Compile: g++ edge_extrusion.cpp -o edge_extrusion -lraylib -lm -lpthread -ldl -lrt
+// Compile: g++ edge_extrusion.cpp edge_network.cpp -o edge_extrusion -lraylib -lm -lpthread -ldl -lrt -lenet
 
 #include "raylib.h"
 #include <vector>
@@ -9,6 +9,7 @@
 #include <string>
 #include <algorithm>
 #include <map>
+#include "edge_network.h"
 
 const int SCREEN_W = 1280;
 const int SCREEN_H = 720;
@@ -72,7 +73,7 @@ enum AbilityID {
     ABILITY_NONE=-1, ABILITY_BULLMASTER, ABILITY_WINDRUNNER,
     ABILITY_PIERCING, ABILITY_BLACKHOLE, ABILITY_OVERDRIVE, ABILITY_LASER
 };
-enum GamePhase { PHASE_MENU, PHASE_LOBBY, PHASE_GAME, PHASE_UPGRADE, PHASE_GAMEOVER };
+enum GamePhase { PHASE_MENU, PHASE_MPMENU, PHASE_LOBBY, PHASE_GAME, PHASE_UPGRADE, PHASE_GAMEOVER };
 enum WavePhase { WAVE_NORMAL, WAVE_MINIBOSS, WAVE_BOSS_INTRO, WAVE_BOSS, WAVE_CLEARED };
 enum GraphicsMode { GRAPHICS_MAX, GRAPHICS_LOW };
 enum ControlMode { CONTROL_WASD, CONTROL_MOUSE };
@@ -331,6 +332,25 @@ static int menuInputLen = 0;
 
 static bool gameStarted = false, paused = false;
 static GamePhase gamePhase = PHASE_MENU;
+
+// ---- multiplayer ----
+static bool mpHosting = false;
+static bool mpJoining = false;
+static bool mpConnected = false;
+static int mpLocalPlayerId = 0;
+static char mpIP[16] = "127.0.0.1";
+static int mpIPLen = 0;
+static int mpPort = 25565;
+static char mpPortStr[6] = "25565";
+static int mpPortLen = 5;
+static bool mpShowIPInput = false;
+static bool mpFocusPort = false;
+static bool mpNetInited = false;
+static bool mpHostReady = false;
+
+static uint16_t mpInputSeq = 0;
+static uint16_t mpSnapSeq = 0;
+static Snapshot mpSnap;
 
 class Enemy {
 public:
@@ -1481,6 +1501,70 @@ static void drawHUD() {
     }
 }
 
+static void drawMpMenu() {
+    ClearBackground({10,5,20,255});
+    for (int i=0; i<20; i++) {
+        float px = (sinf(GetTime()*0.001f*(i%6+2)+i)*0.5f+0.5f) * SCREEN_W;
+        float py = (cosf(GetTime()*0.0008f*(i%4+3)+i*2)*0.5f+0.5f) * SCREEN_H;
+        DrawCircle(px, py, 2, {(unsigned char)(80+i*6),(unsigned char)(50+i*3),(unsigned char)(140+i*5),30});
+    }
+    float tp = 0.9f + sinf(GetTime()*0.002f)*0.1f;
+    Color tcol = COL_GOLD; tcol.a = (unsigned char)(255*tp);
+    int tw = MeasureText("MULTIJOGADOR", 40);
+    DrawText("MULTIJOGADOR", SCREEN_W/2-tw/2, 120, 40, tcol);
+
+    bool hostDisabled = mpShowIPInput || mpConnected;
+    bool joinDisabled = mpHosting;
+
+    // host button
+    bool hh = !hostDisabled && CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-100, 220, 200, 40});
+    Color hc = mpHosting ? Color{60,100,60,255} : hostDisabled ? Color{20,20,30,255} : hh ? Color{50,50,80,255} : Color{30,30,60,255};
+    DrawRectangle(SCREEN_W/2-100, 220, 200, 40, hc);
+    DrawRectangleLines(SCREEN_W/2-100, 220, 200, 40, hostDisabled?(Color){40,40,50,100}:(Color){100,100,200,150});
+    DrawText(mpHosting?"Hospedando...":"Hospedar Sala", SCREEN_W/2-70, 230, 18, mpHosting?COL_GOLD:(hostDisabled?(Color){80,80,80,255}:WHITE));
+
+    // join button
+    bool hj = !joinDisabled && CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-100, 280, 200, 40});
+    Color jc = mpShowIPInput ? Color{60,60,150,255} : joinDisabled ? Color{20,20,30,255} : hj ? Color{50,50,80,255} : Color{30,30,60,255};
+    DrawRectangle(SCREEN_W/2-100, 280, 200, 40, jc);
+    DrawRectangleLines(SCREEN_W/2-100, 280, 200, 40, joinDisabled?(Color){40,40,50,100}:(Color){100,100,200,150});
+    DrawText("Entrar em Sala", SCREEN_W/2-55, 290, 18, mpShowIPInput?COL_GOLD:(joinDisabled?(Color){80,80,80,255}:WHITE));
+
+    // IP / Port inputs
+    if (mpShowIPInput) {
+        DrawText("IP:", SCREEN_W/2-130, 342, 15, WHITE);
+        DrawRectangle(SCREEN_W/2-100, 336, 200, 28, {20,20,40,255});
+        DrawRectangleLines(SCREEN_W/2-100, 336, 200, 28, mpFocusPort?(Color){100,100,200,100}:(Color){200,200,100,200});
+        DrawText(mpIP[0]?mpIP:"...", SCREEN_W/2-92, 340, 15, mpIP[0]?WHITE:(Color){120,120,120,255});
+        if (!mpFocusPort) DrawText("_", SCREEN_W/2-92+MeasureText(mpIP,15), 340, 15, (Color){200,200,100,(unsigned char)(120+int(sinf(GetTime()*0.004f)*60))});
+
+        DrawText("Porta:", SCREEN_W/2-130, 384, 15, WHITE);
+        DrawRectangle(SCREEN_W/2-100, 378, 100, 28, {20,20,40,255});
+        DrawRectangleLines(SCREEN_W/2-100, 378, 100, 28, mpFocusPort?(Color){200,200,100,200}:(Color){100,100,200,100});
+        DrawText(mpPortStr[0]?mpPortStr:"...", SCREEN_W/2-92, 382, 15, WHITE);
+        if (mpFocusPort) DrawText("_", SCREEN_W/2-92+MeasureText(mpPortStr,15), 382, 15, (Color){200,200,100,(unsigned char)(120+int(sinf(GetTime()*0.004f)*60))});
+
+        DrawText("TAB para alternar, ENTER para conectar", SCREEN_W/2-MeasureText("TAB para alternar, ENTER para conectar", 13)/2, 420, 13, {180,180,200,150});
+    }
+
+    // status info
+    if (mpConnected) {
+        DrawText(TextFormat("Conectado! Jogadores: %d", netGetClientCount()+1),
+                 SCREEN_W/2-MeasureText("X", 16)/2, 410, 16, COL_GOLD);
+    }
+    if (mpHosting) {
+        DrawText(TextFormat("Porta %d | Jogadores: %d", mpPort, netGetClientCount()+1),
+                 SCREEN_W/2-MeasureText("X", 14)/2, 340, 14, COL_GOLD);
+    }
+
+    // back button
+    bool hb = CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-60, 480, 120, 30});
+    Color bc2 = hb ? Color{60,40,40,255} : Color{40,20,20,255};
+    DrawRectangle(SCREEN_W/2-60, 480, 120, 30, bc2);
+    DrawRectangleLines(SCREEN_W/2-60, 480, 120, 30, {150,80,80,150});
+    DrawText("Voltar", SCREEN_W/2-22, 486, 16, {200,150,150,255});
+}
+
 static void drawMenu() {
     ClearBackground({10,5,20,255});
     for (int i=0; i<30; i++) {
@@ -1503,6 +1587,13 @@ static void drawMenu() {
     float ba = 0.5f + sinf(GetTime()*0.003f)*0.5f;
     Color hintCol = {200,200,200,(unsigned char)(ba*255)};
     DrawText("Pressione ESPACO para continuar", SCREEN_W/2-MeasureText("Pressione ESPACO para continuar", 20)/2, 400, 20, hintCol);
+
+    // multiplayer button
+    bool hoverMp = CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-70, 440, 140, 30});
+    Color mpCol = hoverMp ? Color{50,50,80,255} : Color{30,30,60,255};
+    DrawRectangle(SCREEN_W/2-70, 440, 140, 30, mpCol);
+    DrawRectangleLines(SCREEN_W/2-70, 440, 140, 30, {100,100,200,150});
+    DrawText("Multijogador", SCREEN_W/2-45, 446, 16, WHITE);
     
     if (devModeUnlocked) {
         float ga = 0.8f + sinf(GetTime()*0.004f)*0.2f;
@@ -1566,6 +1657,24 @@ static void drawLobby() {
         float ga = 0.8f + sinf(GetTime()*0.004f)*0.2f;
         Color dc = COL_GOLD; dc.a = (unsigned char)(255*ga);
         DrawText("[D] MODO DEV", SCREEN_W/2-MeasureText("[D] MODO DEV", 20)/2, 400, 20, dc);
+    }
+
+    // multiplayer room info
+    if (mpHosting) {
+        DrawText(TextFormat("SALA: %d jogador(es) conectado(s)", netGetClientCount()+1),
+                 SCREEN_W/2-MeasureText("X", 16)/2, 280, 16, COL_GOLD);
+        for (int i = 0; i < netGetClientCount(); i++) {
+            DrawText(TextFormat("Jogador %d", i+2), SCREEN_W/2-50, 300+i*20, 14, WHITE);
+        }
+    } else if (mpConnected) {
+        DrawText("Conectado ao servidor! Escolha sua habilidade e pressione ESPACO",
+                 SCREEN_W/2-MeasureText("X", 14)/2, 280, 14, COL_GOLD);
+    }
+    if (mpHostReady) {
+        float pa = 0.5f + sinf(GetTime()*0.004f)*0.5f;
+        Color pc = COL_GOLD; pc.a = (unsigned char)(255*pa);
+        DrawText("Aguardando outro jogador ficar pronto...",
+                 SCREEN_W/2-MeasureText("Aguardando outro jogador ficar pronto...", 18)/2, 450, 18, pc);
     }
 }
 
@@ -1723,12 +1832,43 @@ static void resetGameState() {
     upgradePool = &upgrades;
 }
 
+static void initHostGame() {
+    resetGameState();
+    startNextWave();
+    if (devModeUnlocked && devWaveNumber > 1) {
+        while (wave.number < devWaveNumber && wave.number < TOTAL_WAVES) {
+            wave.number++;
+            wave.phase = WAVE_NORMAL;
+            wave.enemiesToSpawn = 8 + (int)(wave.number*4.5f);
+            wave.spawnTimer = 0;
+            wave.spawnInterval = std::max(280, 950 - wave.number*40);
+            wave.announcement = TextFormat("Onda %d/%d", wave.number, TOTAL_WAVES);
+            wave.announcementTimer = 2500;
+            applyBiomeForCurrentWave();
+        }
+        boss.obj = nullptr;
+        for (auto& e : enemies) delete e;
+        enemies.clear();
+    }
+    if (devModeUnlocked && devDebugTarget >= 0) {
+        int target = devDebugTarget;
+        devDebugTarget = -1;
+        wave.number = TOTAL_WAVES;
+        wave.minibossesDefeated = target == 3 ? MINIBOSS_COUNT : target;
+        wave.enemiesToSpawn = 0;
+        wave.waitingNextWave = false;
+    }
+    mpSnapSeq = 2;
+}
+
 int main() {
     srand(time(0));
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_FULLSCREEN_MODE);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(SCREEN_W, SCREEN_H, "Edge Extrusion");
     InitAudioDevice();
     SetTargetFPS(60);
+    
+    mpNetInited = netInit();
     
     initSounds();
     initUpgrades();
@@ -1743,28 +1883,123 @@ int main() {
     while (!WindowShouldClose()) {
         int dt = (int)(GetFrameTime()*1000);
         if (dt < 1) dt = 1;
+
+        if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
+
+        // network tick
+        if (mpNetInited) {
+            netTick();
+            if (mpJoining && netIsConnected() && !mpConnected) {
+                mpConnected = true;
+            }
+        }
         
         if (gamePhase == PHASE_MENU) {
-            if (IsKeyPressed(KEY_SPACE)) {
+            if (IsKeyPressed(KEY_SPACE) && !mpShowIPInput) {
                 gamePhase = PHASE_LOBBY;
                 chosenAbility = ABILITY_BULLMASTER;
             }
             int c = GetCharPressed();
             while (c > 0) {
-                if (menuInputLen < 30 && c >= 32 && c <= 126) {
-                    menuInput[menuInputLen++] = (char)c;
-                    menuInput[menuInputLen] = 0;
+                if (mpShowIPInput) {
+                    if (mpIPLen < 15 && ((c >= '0' && c <= '9') || c == '.' || c == ':')) {
+                        mpIP[mpIPLen++] = (char)c;
+                        mpIP[mpIPLen] = 0;
+                    }
+                } else {
+                    if (menuInputLen < 30 && c >= 32 && c <= 126) {
+                        menuInput[menuInputLen++] = (char)c;
+                        menuInput[menuInputLen] = 0;
+                    }
                 }
                 c = GetCharPressed();
             }
-            if (IsKeyPressed(KEY_BACKSPACE) && menuInputLen > 0) {
-                menuInput[--menuInputLen] = 0;
+            if (IsKeyPressed(KEY_BACKSPACE)) {
+                if (mpShowIPInput && mpIPLen > 0) mpIP[--mpIPLen] = 0;
+                else if (menuInputLen > 0) menuInput[--menuInputLen] = 0;
             }
             if (!devModeUnlocked && strcmp(menuInput, "J0gad0r1234dev") == 0) {
                 devModeUnlocked = true;
                 menuInputLen = 0;
                 menuInput[0] = 0;
             }
+
+            // go to multiplayer screen
+            Vector2 mpM = GetMousePosition();
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (CheckCollisionPointRec(mpM, {SCREEN_W/2-70, 440, 140, 30})) {
+                    gamePhase = PHASE_MPMENU;
+                }
+            }
+        } else if (gamePhase == PHASE_MPMENU) {
+            Vector2 mpm = GetMousePosition();
+            bool hostDisabled = mpShowIPInput || mpConnected;
+            bool joinDisabled = mpHosting;
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (!hostDisabled && CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 220, 200, 40})) {
+                    if (!mpHosting) {
+                        if (!mpNetInited) { mpNetInited = netInit(); }
+                        if (netHostStart(mpPort)) {
+                            mpHosting = true;
+                            mpJoining = mpShowIPInput = false;
+                            mpLocalPlayerId = 0;
+                        }
+                    } else {
+                        netCleanup();
+                        mpHosting = mpJoining = mpConnected = false;
+                        mpNetInited = false;
+                    }
+                }
+                if (!joinDisabled && CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 280, 200, 40})) {
+                    mpShowIPInput = !mpShowIPInput;
+                }
+                if (CheckCollisionPointRec(mpm, {SCREEN_W/2-60, 480, 120, 30})) {
+                    gamePhase = PHASE_MENU;
+                    mpShowIPInput = false;
+                    mpFocusPort = false;
+                }
+            }
+            // input fields
+            if (mpShowIPInput) {
+                // click on IP or port field to focus
+                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                    bool hitIP = CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 336, 200, 28});
+                    bool hitPort = CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 378, 100, 28});
+                    if (hitPort) mpFocusPort = true;
+                    else if (hitIP) mpFocusPort = false;
+                }
+                if (IsKeyPressed(KEY_TAB)) mpFocusPort = !mpFocusPort;
+
+                int cc2 = GetCharPressed();
+                while (cc2 > 0) {
+                    if (mpFocusPort) {
+                        if (mpPortLen < 5 && cc2 >= '0' && cc2 <= '9') {
+                            mpPortStr[mpPortLen++] = (char)cc2;
+                            mpPortStr[mpPortLen] = 0;
+                        }
+                    } else {
+                        if (mpIPLen < 15 && cc2 >= 32 && cc2 <= 126) {
+                            mpIP[mpIPLen++] = (char)cc2;
+                            mpIP[mpIPLen] = 0;
+                        }
+                    }
+                    cc2 = GetCharPressed();
+                }
+                if (IsKeyPressed(KEY_BACKSPACE)) {
+                    if (mpFocusPort && mpPortLen > 0) mpPortStr[--mpPortLen] = 0;
+                    else if (!mpFocusPort && mpIPLen > 0) mpIP[--mpIPLen] = 0;
+                }
+                if (IsKeyPressed(KEY_ENTER) && mpIP[0]) {
+                    mpPort = atoi(mpPortStr);
+                    if (mpPort <= 0) mpPort = 25565;
+                    if (!mpNetInited) { mpNetInited = netInit(); }
+                    if (netConnect(mpIP, mpPort)) {
+                        mpJoining = true;
+                        mpHosting = false;
+                    }
+                }
+            }
+            if (IsKeyPressed(KEY_ESCAPE)) { gamePhase = PHASE_MENU; mpShowIPInput = false; mpFocusPort = false; }
         } else if (gamePhase == PHASE_LOBBY) {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 Vector2 mp = GetMousePosition();
@@ -1785,72 +2020,40 @@ int main() {
             if (IsKeyPressed(KEY_FOUR)) chosenAbility = ABILITY_BLACKHOLE;
             if (IsKeyPressed(KEY_FIVE)) chosenAbility = ABILITY_OVERDRIVE;
             if (IsKeyPressed(KEY_SIX)) chosenAbility = ABILITY_LASER;
+            if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_ENTER)) {
+                int next = ((int)chosenAbility + 1) % 6;
+                chosenAbility = (AbilityID)next;
+            }
+            if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_UP)) {
+                int prev = ((int)chosenAbility + 5) % 6;
+                chosenAbility = (AbilityID)prev;
+            }
             if (IsKeyPressed(KEY_D) && devModeUnlocked) {
                 devPanelOpen = !devPanelOpen;
             }
             if (IsKeyPressed(KEY_SPACE) && !devPanelOpen) {
+                paused = false;
+                settingsOpen = false;
+                if (mpConnected && !mpHosting) {
+                    // client: enter game world and wait for host snapshots
+                    gamePhase = PHASE_GAME;
+                    gameStarted = true;
+                } else if (!mpHosting) {
+                    // single player: start immediately
+                    gamePhase = PHASE_GAME;
+                    gameStarted = true;
+                    initHostGame();
+                } else if (netGetClientCount() > 0) {
+                    // host with clients: enter ready state
+                    mpHostReady = true;
+                }
+            }
+            // host: detect client ready
+            if (mpHostReady && netClientSentInput()) {
+                mpHostReady = false;
                 gamePhase = PHASE_GAME;
                 gameStarted = true;
-                playerPos = Vec2(WORLD_W/2, WORLD_H/2);
-                playerHp = playerMaxHp;
-                playerShieldHp = playerShieldMax;
-                playerStamina = playerMaxStamina;
-                playerXp = 0; playerLevel = 1; playerXpNeeded = 0;
-                playerDashCooldown = 0; playerContactCooldown = 0;
-                if (!devModeUnlocked) { playerBullets = 1; }
-                overdriveActive = false; speedBoostActive = false; laserActive = false;
-                overdriveTimer = 0; overdriveCooldownTimer = 0;
-                speedBoostTimer = 0; speedBoostCooldownTimer = 0;
-                laserTimer = 0; laserCooldownTimer = 0;
-                piercingNext = false; shotCount = 0; bhTimer = 0;
-                bullets.clear(); enemyBullets.clear(); particles.clear();
-                shockwaves.clear(); bombs.clear(); blackholes.clear();
-                enemies.clear(); minions.clear(); score = 0; playerTrailCount = 0;
-                
-                applyAbilityPassives();
-                
-                if (devModeUnlocked && devMinionCount > 0) {
-                    for (int i = 0; i < devMinionCount; i++) {
-                        Minion m;
-                        m.angle = (float)i / devMinionCount * M_PI * 2;
-                        m.orbitDist = 80;
-                        m.orbitSpeed = 0.03f;
-                        m.shootTimer = 0;
-                        m.shootCooldown = 600;
-                        m.damage = playerDamage * 0.5f;
-                        m.shootRange = 400;
-                        m.color = {255,200,50,255};
-                        minions.push_back(m);
-                    }
-                }
-                
-                wave.number = 0; wave.phase = WAVE_NORMAL;
-                wave.minibossesDefeated = 0; wave.waitingNextWave = false;
-                
-                startNextWave();
-                if (devModeUnlocked && devWaveNumber > 1) {
-                    while (wave.number < devWaveNumber && wave.number < TOTAL_WAVES) {
-                        wave.number++;
-                        wave.phase = WAVE_NORMAL;
-                        wave.enemiesToSpawn = 8 + (int)(wave.number*4.5f);
-                        wave.spawnTimer = 0;
-                        wave.spawnInterval = std::max(280, 950 - wave.number*40);
-                        wave.announcement = TextFormat("Onda %d/%d", wave.number, TOTAL_WAVES);
-                        wave.announcementTimer = 2500;
-                        applyBiomeForCurrentWave();
-                    }
-                    boss.obj = nullptr;
-                    for (auto& e : enemies) delete e;
-                    enemies.clear();
-                }
-                if (devModeUnlocked && devDebugTarget >= 0) {
-                    int target = devDebugTarget;
-                    devDebugTarget = -1;
-                    wave.number = TOTAL_WAVES;
-                    wave.minibossesDefeated = target == 3 ? MINIBOSS_COUNT : target;
-                    wave.enemiesToSpawn = 0;
-                    wave.waitingNextWave = false;
-                }
+                initHostGame();
             }
         } else if (gamePhase == PHASE_GAME || gamePhase == PHASE_UPGRADE) {
             if (IsKeyPressed(KEY_ENTER)) {
@@ -2162,8 +2365,94 @@ int main() {
                     upgradeDisplay3 = lastUpgradeChoice3;
                 }
                 
-                updateWaveLogic(dt);
-                updateMinions(dt);
+                if (!mpConnected || mpHosting) {
+                    updateWaveLogic(dt);
+                    updateMinions(dt);
+                }
+            }
+            
+            // always receive snapshots and send input
+            if (mpConnected && !mpHosting) {
+                Snapshot s;
+                if (netReceiveSnapshot(s)) mpSnap = s;
+                InputPacket inp;
+                inp.seq = mpInputSeq++;
+                inp.up = IsKeyDown(KEY_W);
+                inp.down = IsKeyDown(KEY_S);
+                inp.left = IsKeyDown(KEY_A);
+                inp.right = IsKeyDown(KEY_D);
+                Vector2 mpm = GetMousePosition();
+                float dx = mpm.x - SCREEN_W/2, dy = mpm.y - SCREEN_H/2;
+                float dl = sqrtf(dx*dx+dy*dy);
+                inp.aimX = dl>1?dx/dl:1; inp.aimY = dl>1?dy/dl:0;
+                inp.shoot = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+                netSendInput(inp);
+            }
+
+            // host: always broadcast snapshot
+            if (mpHosting) {
+                mpSnapSeq++;
+                if (mpSnapSeq % 3 == 0) {
+                    Snapshot snap;
+                    snap.seq = mpSnapSeq;
+                    snap.playerCount = 1 + netGetClientCount();
+                    snap.players[0].id = 0;
+                    snap.players[0].x = playerPos.x;
+                    snap.players[0].y = playerPos.y;
+                    snap.players[0].hp = playerHp;
+                    snap.players[0].maxHp = playerMaxHp;
+                    snap.players[0].shieldHp = playerShieldHp;
+                    snap.players[0].shieldMax = playerShieldMax;
+                    snap.players[0].level = playerLevel;
+                    for (int ci = 0; ci < netGetClientCount() && ci < 7; ci++) {
+                        auto& cp = snap.players[1+ci];
+                        cp.id = 1+ci;
+                        cp.x = playerPos.x + (ci+1)*60 * (ci%2?-1:1);
+                        cp.y = playerPos.y;
+                        cp.hp = playerHp; cp.maxHp = playerMaxHp;
+                        cp.shieldHp = 0; cp.shieldMax = 0;
+                        cp.level = playerLevel;
+                    }
+                    snap.enemyCount = 0;
+                    for (auto& e : enemies) {
+                        if (snap.enemyCount >= 256) break;
+                        auto& ne = snap.enemies[snap.enemyCount++];
+                        ne.id = 0; ne.type = (uint8_t)e->type;
+                        ne.x = e->pos.x; ne.y = e->pos.y;
+                        ne.hp = e->hp; ne.maxHp = e->maxHp;
+                        ne.shieldHp = e->shieldHp; ne.shieldMax = e->shieldHpMax;
+                        ne.r = e->r;
+                        switch (e->type) {
+                            case ENEMY_BALL: ne.r_=255;ne.g_=255;ne.b_=255; break;
+                            case ENEMY_TRIANGLE: ne.r_=100;ne.g_=200;ne.b_=255; break;
+                            case ENEMY_SQUARE: ne.r_=100;ne.g_=255;ne.b_=100; break;
+                            case ENEMY_SNIPER_COMMON: ne.r_=200;ne.g_=200;ne.b_=100; break;
+                            case ENEMY_RUNNER: ne.r_=255;ne.g_=100;ne.b_=100; break;
+                            case ENEMY_MINIBOSS_SNIPER: ne.r_=255;ne.g_=136;ne.b_=0; break;
+                            case ENEMY_MINIBOSS_BLINKER: ne.r_=200;ne.g_=80;ne.b_=255; break;
+                            case ENEMY_MINIBOSS_DASHER: ne.r_=255;ne.g_=68;ne.b_=0; break;
+                            case ENEMY_BOSS: ne.r_=122;ne.g_=0;ne.b_=48; break;
+                        }
+                    }
+                    snap.bulletCount = 0;
+                    for (auto& b : enemyBullets) {
+                        if (snap.bulletCount >= 512) break;
+                        auto& nb = snap.bullets[snap.bulletCount++];
+                        nb.x = b.pos.x; nb.y = b.pos.y; nb.r = b.r; nb.enemy = true;
+                    }
+                    snap.waveNumber = wave.number;
+                    snap.score = score;
+                    snap.gameOver = (gamePhase == PHASE_GAMEOVER);
+                    snap.bossHp = 0; snap.bossMaxHp = 0; snap.bossPhaseIndex = boss.bossPhaseIndex;
+                    for (auto& e : enemies) {
+                        if (e->isBoss()) {
+                            snap.bossHp = e->hp;
+                            snap.bossMaxHp = e->maxHp;
+                            break;
+                        }
+                    }
+                    netBroadcastSnapshot(snap);
+                }
             }
             
             updateOverdrive(dt);
@@ -2234,6 +2523,8 @@ int main() {
         
         if (gamePhase == PHASE_MENU) {
             drawMenu();
+        } else if (gamePhase == PHASE_MPMENU) {
+            drawMpMenu();
         } else if (gamePhase == PHASE_LOBBY) {
             drawLobby();
             if (devPanelOpen) {
@@ -2323,6 +2614,63 @@ int main() {
                 DrawText("Pressione D para fechar", SCREEN_W/2-MeasureText("Pressione D para fechar", 16)/2, SCREEN_H-40, 16, {180,180,180,255});
             }
         } else if (gamePhase == PHASE_GAME || gamePhase == PHASE_UPGRADE) {
+            // client mode: render from snapshot
+            if (mpConnected && !mpHosting) {
+                drawWorld();
+                if (mpSnap.playerCount == 0) {
+                    float pulse = 0.7f + sinf(GetTime()*0.003f)*0.3f;
+                    Color waitCol = COL_GOLD;
+                    waitCol.a = (unsigned char)(255 * pulse);
+                    DrawText("Aguardando anfitriao iniciar a partida...",
+                             SCREEN_W/2 - MeasureText("Aguardando anfitriao iniciar a partida...", 20)/2,
+                             SCREEN_H/2 - 10, 20, waitCol);
+                    goto endDraw;
+                }
+                // draw players from snapshot
+                for (int pi = 0; pi < mpSnap.playerCount; pi++) {
+                    auto& sp = mpSnap.players[pi];
+                    float sx = toScreenX(sp.x), sy = toScreenY(sp.y);
+                    bool isMe = (pi == 0);
+                    Color pc = isMe ? GREEN : (Color){100,200,255,255};
+                    DrawCircleV({sx,sy}, 12, pc);
+                    DrawCircleV({sx,sy}, 8, {255,255,255,200});
+                    float bw2 = 30;
+                    DrawRectangle(sx-bw2/2, sy-24, bw2, 4, {20,20,20,255});
+                    DrawRectangle(sx-bw2/2, sy-24, bw2*(sp.hp/sp.maxHp), 4, GREEN);
+                }
+                // draw enemies from snapshot
+                for (int ei = 0; ei < mpSnap.enemyCount; ei++) {
+                    auto& se = mpSnap.enemies[ei];
+                    float sx = toScreenX(se.x), sy = toScreenY(se.y);
+                    Color ec = {se.r_, se.g_, se.b_, 255};
+                    DrawCircleV({sx,sy}, se.r, ec);
+                    if (se.hp < se.maxHp) {
+                        float bw2 = se.r*2;
+                        DrawRectangle(sx-bw2/2, sy-se.r-8, bw2, 4, {20,20,20,255});
+                        DrawRectangle(sx-bw2/2, sy-se.r-8, bw2*se.hp/se.maxHp, 4, RED);
+                    }
+                }
+                // draw bullets from snapshot
+                for (int bi = 0; bi < mpSnap.bulletCount; bi++) {
+                    auto& sb = mpSnap.bullets[bi];
+                    float sx = toScreenX(sb.x), sy = toScreenY(sb.y);
+                    Color bc = sb.enemy ? (Color){255,100,100,255} : (Color){80,200,255,255};
+                    DrawCircleV({sx,sy}, sb.r, bc);
+                }
+                // HUD from snapshot
+                if (mpSnap.playerCount > 0) {
+                    auto& sp = mpSnap.players[0];
+                    DrawText(TextFormat("HP: %.0f/%.0f  LVL %d  Onda %d/%d", sp.hp, sp.maxHp, sp.level, mpSnap.waveNumber, 15), 10, 10, 16, WHITE);
+                    DrawText(TextFormat("Score: %d", mpSnap.score), 10, 30, 16, WHITE);
+                }
+                if (mpSnap.gameOver) {
+                    const char* gtxt = "GAME OVER";
+                    DrawText(gtxt, SCREEN_W/2-MeasureText(gtxt,48)/2, SCREEN_H/2-24, 48, RED);
+                }
+                // skip normal drawing
+                goto endDraw;
+            }
+
             drawWorld();
             
             for (auto& b : bullets) {
@@ -2460,6 +2808,7 @@ int main() {
             DrawText("ESPACO para voltar ao menu", SCREEN_W/2-MeasureText("ESPACO para voltar ao menu", 18)/2, 380, 18, hintC);
         }
         
+        endDraw:
         if (damageFlashTimer > 0 && (gamePhase == PHASE_GAME || gamePhase == PHASE_UPGRADE)) {
             float alpha = (damageFlashTimer / 12.0f) * 50;
             DrawRectangle(0, 0, SCREEN_W, SCREEN_H, {255, 0, 0, (unsigned char)alpha});
@@ -2470,6 +2819,7 @@ int main() {
     
     for (auto& e : enemies) delete e;
     for (auto& s : sounds) UnloadSound(s.second);
+    if (mpNetInited) netCleanup();
     CloseAudioDevice();
     CloseWindow();
     return 0;
