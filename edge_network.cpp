@@ -35,9 +35,11 @@ static bool gIsClient = false;
 static bool gConnected = false;
 static uint8_t gLocalPlayerId = 0;
 static std::vector<ENetPeer*> gClients;
+static std::vector<ClientInput> gClientInputs;
 static Snapshot gLastSnap;
 static bool gHasSnap = false;
 static bool gClientSentInput = false;
+static bool gReceivedGameStart = false;
 
 bool netInit() {
     if (enet_initialize() != 0) return false;
@@ -51,6 +53,7 @@ void netCleanup() {
     if (gClient) { enet_host_destroy(gClient); gClient = nullptr; }
     gIsHost = gIsClient = gConnected = false;
     gClients.clear();
+    gClientInputs.clear();
 }
 
 bool netHostStart(int port) {
@@ -95,6 +98,13 @@ void netSetLocalPlayerId(uint8_t id) { gLocalPlayerId = id; }
 uint8_t netGetLocalPlayerId() { return gLocalPlayerId; }
 bool netClientSentInput() { bool v = gClientSentInput; gClientSentInput = false; return v; }
 
+ClientInput netGetClientInput(int clientIndex) {
+    static ClientInput zero = {0};
+    if (clientIndex >= 0 && clientIndex < (int)gClientInputs.size())
+        return gClientInputs[clientIndex];
+    return zero;
+}
+
 const char* netGetLocalIP() {
     static char ip[64] = {0};
     if (ip[0]) return ip;
@@ -121,17 +131,52 @@ void netTick() {
                 uint8_t id = 1 + (uint8_t)gClients.size();
                 ev.peer->data = (void*)(uintptr_t)id;
                 gClients.push_back(ev.peer);
+                gClientInputs.resize(gClients.size());
                 printf("Cliente %d conectou\n", id);
+                
+                std::vector<uint8_t> buf;
+                w8(buf, PKT_ASSIGN_ID);
+                w8(buf, id);
+                ENetPacket* pk = enet_packet_create(buf.data(), buf.size(), ENET_PACKET_FLAG_RELIABLE);
+                enet_peer_send(ev.peer, 0, pk);
+                enet_host_flush(gServer);
+            }
             } else if (ev.type == ENET_EVENT_TYPE_RECEIVE) {
                 // client sent input
                 if (ev.packet->dataLength > 0 && ev.packet->data[0] == PKT_INPUT) {
                     gClientSentInput = true;
-                    // store for use in game update TODO
+                    const uint8_t* p = ev.packet->data + 1;
+                    ClientInput ci;
+                    ci.seq = r16(p);
+                    uint8_t k = r8(p);
+                    ci.up = (k & 1) != 0;
+                    ci.down = (k & 2) != 0;
+                    ci.left = (k & 4) != 0;
+                    ci.right = (k & 8) != 0;
+                    ci.shoot = (k & 16) != 0;
+                    ci.aimX = rf(p);
+                    ci.aimY = rf(p);
+                    ci.hp = rf(p);
+                    ci.maxHp = rf(p);
+                    ci.shieldHp = rf(p);
+                    ci.shieldMax = rf(p);
+                    ci.level = r8(p);
+                    auto it = std::find(gClients.begin(), gClients.end(), ev.peer);
+                    if (it != gClients.end()) {
+                        int idx = (int)(it - gClients.begin());
+                        if (idx < (int)gClientInputs.size())
+                            gClientInputs[idx] = ci;
+                    }
                 }
                 enet_packet_destroy(ev.packet);
             } else if (ev.type == ENET_EVENT_TYPE_DISCONNECT) {
                 auto it = std::find(gClients.begin(), gClients.end(), ev.peer);
-                if (it != gClients.end()) gClients.erase(it);
+                if (it != gClients.end()) {
+                    int idx = (int)(it - gClients.begin());
+                    gClients.erase(it);
+                    if (idx < (int)gClientInputs.size())
+                        gClientInputs.erase(gClientInputs.begin() + idx);
+                }
                 printf("Cliente desconectou\n");
             }
         }
@@ -169,6 +214,7 @@ void netTick() {
                         auto& b = gLastSnap.bullets[i];
                         b.x = rf(p); b.y = rf(p); b.r = rf(p);
                         b.enemy = r8(p) != 0;
+                        b.damage = rf(p);
                     }
                     gLastSnap.waveNumber = r8(p);
                     gLastSnap.score = r16(p);
@@ -177,6 +223,11 @@ void netTick() {
                     gLastSnap.bossMaxHp = rf(p);
                     gLastSnap.bossPhaseIndex = r8(p);
                     gHasSnap = true;
+                } else if (ev.packet->dataLength > 0 && ev.packet->data[0] == PKT_GAMESTART) {
+                    gReceivedGameStart = true;
+                } else if (ev.packet->dataLength > 1 && ev.packet->data[0] == PKT_ASSIGN_ID) {
+                    gLocalPlayerId = ev.packet->data[1];
+                    printf("Recebi meu player ID: %d\n", gLocalPlayerId);
                 }
                 enet_packet_destroy(ev.packet);
             } else if (ev.type == ENET_EVENT_TYPE_DISCONNECT) {
@@ -195,6 +246,9 @@ void netSendInput(const InputPacket& inp) {
     uint8_t k = (inp.up?1:0)|(inp.down?2:0)|(inp.left?4:0)|(inp.right?8:0)|(inp.shoot?16:0);
     w8(buf, k);
     wf(buf, inp.aimX); wf(buf, inp.aimY);
+    wf(buf, inp.hp); wf(buf, inp.maxHp);
+    wf(buf, inp.shieldHp); wf(buf, inp.shieldMax);
+    w8(buf, inp.level);
     ENetPacket* pk = enet_packet_create(buf.data(), buf.size(), ENET_PACKET_FLAG_UNSEQUENCED);
     enet_peer_send(gPeer, 0, pk);
     enet_host_flush(gClient);
@@ -235,6 +289,7 @@ void netBroadcastSnapshot(const Snapshot& snap) {
         auto& b = snap.bullets[i];
         wf(buf, b.x); wf(buf, b.y); wf(buf, b.r);
         w8(buf, b.enemy?1:0);
+        wf(buf, b.damage);
     }
     w8(buf, snap.waveNumber);
     w16(buf, snap.score);
@@ -242,6 +297,25 @@ void netBroadcastSnapshot(const Snapshot& snap) {
     wf(buf, snap.bossHp); wf(buf, snap.bossMaxHp);
     w8(buf, snap.bossPhaseIndex);
 
+    ENetPacket* pk = enet_packet_create(buf.data(), buf.size(), ENET_PACKET_FLAG_UNSEQUENCED);
+    enet_host_broadcast(gServer, 0, pk);
+}
+
+void netSetClientCount(int n) {
+    // Unused by game but declared in header
+}
+
+void netBroadcastGameStart() {
+    if (!gServer) return;
+    std::vector<uint8_t> buf;
+    w8(buf, PKT_GAMESTART);
     ENetPacket* pk = enet_packet_create(buf.data(), buf.size(), ENET_PACKET_FLAG_RELIABLE);
     enet_host_broadcast(gServer, 0, pk);
+    enet_host_flush(gServer);
+}
+
+bool netReceiveGameStart() {
+    bool v = gReceivedGameStart;
+    gReceivedGameStart = false;
+    return v;
 }

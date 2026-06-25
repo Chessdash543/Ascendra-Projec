@@ -1,4 +1,4 @@
-// Compile: g++ edge_extrusion.cpp edge_network.cpp -o edge_extrusion -lraylib -lm -lpthread -ldl -lrt -lenet
+// Compile: g++ edge_extrusion.cpp -o edge_extrusion -lraylib -lm -lpthread -ldl -lrt
 
 #include "raylib.h"
 #include <vector>
@@ -9,7 +9,6 @@
 #include <string>
 #include <algorithm>
 #include <map>
-#include "edge_network.h"
 
 const int SCREEN_W = 1280;
 const int SCREEN_H = 720;
@@ -66,14 +65,14 @@ static const Color COL_EXPLOSIVE= hexToCol(0x7a5aff);
 
 enum EnemyType {
     ENEMY_BALL, ENEMY_TRIANGLE, ENEMY_SQUARE, ENEMY_SNIPER_COMMON,
-    ENEMY_RUNNER, ENEMY_MINIBOSS_SNIPER, ENEMY_MINIBOSS_BLINKER,
+    ENEMY_RUNNER, ENEMY_HEAVY, ENEMY_MINIBOSS_SNIPER, ENEMY_MINIBOSS_BLINKER,
     ENEMY_MINIBOSS_DASHER, ENEMY_BOSS
 };
 enum AbilityID {
     ABILITY_NONE=-1, ABILITY_BULLMASTER, ABILITY_WINDRUNNER,
     ABILITY_PIERCING, ABILITY_BLACKHOLE, ABILITY_OVERDRIVE, ABILITY_LASER
 };
-enum GamePhase { PHASE_MENU, PHASE_MPMENU, PHASE_LOBBY, PHASE_GAME, PHASE_UPGRADE, PHASE_GAMEOVER };
+enum GamePhase { PHASE_MENU, PHASE_LOBBY, PHASE_GAME, PHASE_UPGRADE, PHASE_GAMEOVER };
 enum WavePhase { WAVE_NORMAL, WAVE_MINIBOSS, WAVE_BOSS_INTRO, WAVE_BOSS, WAVE_CLEARED };
 enum GraphicsMode { GRAPHICS_MAX, GRAPHICS_LOW };
 enum ControlMode { CONTROL_WASD, CONTROL_MOUSE };
@@ -333,29 +332,28 @@ static int menuInputLen = 0;
 static bool gameStarted = false, paused = false;
 static GamePhase gamePhase = PHASE_MENU;
 
-// ---- multiplayer ----
-static bool mpHosting = false;
-static bool mpJoining = false;
-static bool mpConnected = false;
-static int mpLocalPlayerId = 0;
-static char mpIP[16] = "127.0.0.1";
-static int mpIPLen = 0;
-static int mpPort = 25565;
-static char mpPortStr[6] = "25565";
-static int mpPortLen = 5;
-static bool mpShowIPInput = false;
-static bool mpFocusPort = false;
-static bool mpNetInited = false;
-static bool mpHostReady = false;
-static bool mpConnectFailed = false;
 
-static uint16_t mpInputSeq = 0;
-static uint16_t mpSnapSeq = 0;
-static Snapshot mpSnap;
+
+static float getEnemyDamage(int type) {
+    switch (type) {
+        case ENEMY_BALL: return 8.0f;
+        case ENEMY_TRIANGLE: return 14.0f;
+        case ENEMY_SQUARE: return 6.0f;
+        case ENEMY_SNIPER_COMMON: return 30.0f;
+        case ENEMY_RUNNER: return 25.0f;
+        case ENEMY_HEAVY: return 12.0f;
+        case ENEMY_MINIBOSS_SNIPER: return 55.0f;
+        case ENEMY_MINIBOSS_BLINKER: return 20.0f;
+        case ENEMY_MINIBOSS_DASHER: return 38.0f;
+        case ENEMY_BOSS: return 22.0f;
+        default: return 10.0f;
+    }
+}
 
 class Enemy {
 public:
     Vec2 pos;
+    Vec2 targetPos;
     float r, maxHp, hp, speed, damage;
     EnemyType type;
     const char* name;
@@ -380,7 +378,7 @@ public:
     float laserAngle;
     int chargeDuration;
 
-    Enemy(Vec2 p, EnemyType t) : pos(p), type(t), angle(0), pulsePhase(randf()*M_PI*2),
+    Enemy(Vec2 p, EnemyType t) : pos(p), targetPos(playerPos), type(t), angle(0), pulsePhase(randf()*M_PI*2),
         flashTime(0), name(""), shieldLink(nullptr), unbreakableShield(false), shieldProducer(nullptr),
         chargePhase(false), chargeTimer(0), chargeTime(0), dashing(false), dashWarning(false),
         dashTimer(0), dashCooldown(0), dashDuration(0), dashDx(0), dashDy(0), dashWarningTimer(0),
@@ -410,6 +408,10 @@ public:
             case ENEMY_RUNNER:
                 r=14; maxHp=18*waveScale; speed=(2.0f+randf()*0.5f)*waveSpeedMul; damage=25;
                 dashCooldown=2200+rand()%600; dashTimer=dashCooldown*randf();
+                break;
+            case ENEMY_HEAVY:
+                r=22; maxHp=65*waveScale; speed=0.7f*waveSpeedMul; damage=12;
+                shootCooldown=2000+rand()%500; shootTimer=shootCooldown*randf();
                 break;
             case ENEMY_MINIBOSS_SNIPER:
                 r=38; maxHp=1500*waveScale; speed=0.6f; damage=55; name="ATIRADOR DE ELITE";
@@ -466,8 +468,8 @@ public:
         angle += 0.05f;
         pulsePhase += 0.06f;
         if (flashTime>0) flashTime--;
-        
-        Vec2 toPlayer = playerPos - pos;
+        targetPos = playerPos;
+        Vec2 toPlayer = targetPos - pos;
         float d = toPlayer.len();
         if (d<1) d=1;
         
@@ -531,6 +533,26 @@ public:
                     if (dashDuration<=0) dashing=false;
                     if (randf()<0.5f) spawnParticle(pos, {255,102,0,255}, 25);
                     if (d < playerR+r+15) { /* contact damage */ }
+                }
+                break;
+            }
+            case ENEMY_HEAVY: {
+                moveX = toPlayer.x/d*speed; moveY = toPlayer.y/d*speed;
+                shootTimer += dt;
+                if (shootTimer >= shootCooldown) {
+                    shootTimer = 0;
+                    float baseAngle = atan2f(toPlayer.y, toPlayer.x);
+                    for (int i = 0; i < 3; i++) {
+                        float spread = (i - 1) * 0.15f;
+                        float a = baseAngle + spread;
+                        Bullet b;
+                        b.pos = pos; b.r = 6;
+                        b.vel = Vec2(cosf(a) * 5.5f, sinf(a) * 5.5f);
+                        b.speedMag = 5.5f;
+                        b.damage = this->damage;
+                        enemyBullets.push_back(b);
+                    }
+                    spawnParticles(pos, {180,255,80,255}, 4, 20);
                 }
                 break;
             }
@@ -602,8 +624,8 @@ public:
                     if (blinkTimer >= 400) {
                         blinkTimer = 0;
                         float ba = randf()*M_PI*2;
-                        pos.x = playerPos.x + cosf(ba)*(70+randf()*80);
-                        pos.y = playerPos.y + sinf(ba)*(70+randf()*80);
+                        pos.x = targetPos.x + cosf(ba)*(70+randf()*80);
+                        pos.y = targetPos.y + sinf(ba)*(70+randf()*80);
                         pos.x = clamp(pos.x,60,WORLD_W-60);
                         pos.y = clamp(pos.y,60,WORLD_H-60);
                         blinkStage = "moving";
@@ -677,6 +699,7 @@ public:
             case ENEMY_SQUARE: color={126,214,255,255}; break;
             case ENEMY_SNIPER_COMMON: color={255,136,0,255}; break;
             case ENEMY_RUNNER: color={255,102,0,255}; break;
+            case ENEMY_HEAVY: color={140,255,80,255}; break;
             case ENEMY_MINIBOSS_SNIPER: color={255,136,0,255}; break;
             case ENEMY_MINIBOSS_BLINKER: color={200,80,255,255}; break;
             case ENEMY_MINIBOSS_DASHER: color={255,68,0,255}; break;
@@ -698,6 +721,8 @@ public:
         }
         DrawRectangle(sx-r, sy-r-14, bw, bh, {58,10,10,255});
         DrawRectangle(sx-r, sy-r-14, bw*(hp/maxHp), bh, {77,255,122,255});
+        const char* hpText = TextFormat("%.0f/%.0f", hp, maxHp);
+        DrawText(hpText, sx-MeasureText(hpText,11)/2, sy-r-14, 11, WHITE);
         
         if (name) {
             DrawText(name, sx-MeasureText(name,13)/2, sy-r-30, 13, WHITE);
@@ -753,9 +778,10 @@ public:
     }
     
     void update(int dt) override {
+        targetPos = playerPos;
         angle += 0.015f;
         if (flashTime>0) flashTime--;
-        Vec2 toPlayer = playerPos - pos;
+        Vec2 toPlayer = targetPos - pos;
         float d = toPlayer.len();
         if (d<1) d=1;
         if (d>200 && boss.phase != BP_TELEPORTBOMB) {
@@ -840,8 +866,8 @@ public:
                     boss.teleport.timer = 0;
                     float a = randf() * M_PI * 2;
                     float dist = 150 + randf() * 200;
-                    boss.teleport.targetX = clamp(playerPos.x + cosf(a) * dist, 100, WORLD_W - 100);
-                    boss.teleport.targetY = clamp(playerPos.y + sinf(a) * dist, 100, WORLD_H - 100);
+                    boss.teleport.targetX = clamp(targetPos.x + cosf(a) * dist, 100, WORLD_W - 100);
+                    boss.teleport.targetY = clamp(targetPos.y + sinf(a) * dist, 100, WORLD_H - 100);
                     for (int i = 0; i < 3; i++) {
                         Bomb bm;
                         bm.pos = Vec2(boss.teleport.targetX, boss.teleport.targetY);
@@ -977,7 +1003,8 @@ static void spawnMiniboss() {
     Vec2 p = spawnPosOffscreen();
     EnemyType types[] = {ENEMY_MINIBOSS_SNIPER, ENEMY_MINIBOSS_BLINKER, ENEMY_MINIBOSS_DASHER};
     EnemyType t = types[wave.minibossesDefeated % 3];
-    enemies.push_back(new Enemy(p, t));
+    Enemy* mb = new Enemy(p, t);
+    enemies.push_back(mb);
 }
 
 static void startNextWave();
@@ -1031,18 +1058,20 @@ static void startNextWave() {
         wave.announcementTimer = 2500;
         applyBiomeForCurrentWave();
         playSoundName("waveStart");
+        Enemy* heavy = new Enemy(spawnPosOffscreen(), ENEMY_HEAVY);
+        enemies.push_back(heavy);
     } else if (wave.minibossesDefeated >= MINIBOSS_COUNT) {
         // boss fight
         if (devBossEnabled) {
             wave.phase = WAVE_BOSS_INTRO;
-            Boss* b = new Boss(Vec2(playerPos.x, playerPos.y-400));
-            boss.obj = b;
+            Boss* b2 = new Boss(Vec2(playerPos.x, playerPos.y-400));
+            boss.obj = b2;
+            enemies.push_back(b2);
             boss.bossPhaseIndex = 0;
             boss.damageAccumulated = 0;
             boss.weaknessWindow = 0;
             boss.shockwaveTimer = 0;
             boss.teleport.stage = "none";
-            enemies.push_back(b);
             wave.phase = WAVE_BOSS;
             boss.phase = BP_COOLDOWN;
             boss.attackCooldown = 900;
@@ -1180,7 +1209,8 @@ static void redistributeMinionAngles() {
 
 static void updateMinions(int dt) {
     for (auto& m : minions) {
-        m.angle += m.orbitSpeed;
+        m.angle += m.orbitSpeed * dt * 0.06f;
+        if (m.angle > M_PI * 200) m.angle -= M_PI * 200;
         Vec2 targetPos(
             playerPos.x + cosf(m.angle)*m.orbitDist,
             playerPos.y + sinf(m.angle)*m.orbitDist
@@ -1202,6 +1232,7 @@ static void updateMinions(int dt) {
                 b.pos = targetPos;
                 b.vel = dir * playerBulletSpeed * 0.6f;
                 b.speedMag = playerBulletSpeed * 0.6f;
+                b.damage = m.damage;
                 b.r = 4;
                 b.tethered = (m.shootCooldown <= 100);
                 bullets.push_back(b);
@@ -1282,7 +1313,7 @@ static void initUpgrades() {
     rareUpgrades = {
         {"Mini-Seguidor", "Adiciona +1 orbe que atira em inimigos.", []{
             Minion m; m.angle=0; m.orbitDist=60; m.orbitSpeed=0.03f;
-            m.shootTimer=0; m.shootCooldown=(int)(playerFireRate*0.6f);
+            m.shootTimer=0; m.shootCooldown=700;
             m.damage=playerDamage*0.6f; m.shootRange=400; m.color={255,102,255,255};
             minions.push_back(m);
             redistributeMinionAngles();
@@ -1502,87 +1533,7 @@ static void drawHUD() {
     }
 }
 
-static void drawMpMenu() {
-    ClearBackground({10,5,20,255});
-    for (int i=0; i<20; i++) {
-        float px = (sinf(GetTime()*0.001f*(i%6+2)+i)*0.5f+0.5f) * SCREEN_W;
-        float py = (cosf(GetTime()*0.0008f*(i%4+3)+i*2)*0.5f+0.5f) * SCREEN_H;
-        DrawCircle(px, py, 2, {(unsigned char)(80+i*6),(unsigned char)(50+i*3),(unsigned char)(140+i*5),30});
-    }
-    float tp = 0.9f + sinf(GetTime()*0.002f)*0.1f;
-    Color tcol = COL_GOLD; tcol.a = (unsigned char)(255*tp);
-    int tw = MeasureText("MULTIJOGADOR", 40);
-    DrawText("MULTIJOGADOR", SCREEN_W/2-tw/2, 120, 40, tcol);
 
-    bool hostDisabled = mpShowIPInput || mpConnected;
-    bool joinDisabled = mpHosting;
-
-    // host button
-    bool hh = !hostDisabled && CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-100, 220, 200, 40});
-    Color hc = mpHosting ? Color{60,100,60,255} : hostDisabled ? Color{20,20,30,255} : hh ? Color{50,50,80,255} : Color{30,30,60,255};
-    DrawRectangle(SCREEN_W/2-100, 220, 200, 40, hc);
-    DrawRectangleLines(SCREEN_W/2-100, 220, 200, 40, hostDisabled?(Color){40,40,50,100}:(Color){100,100,200,150});
-    DrawText(mpHosting?"Hospedando...":"Hospedar Sala", SCREEN_W/2-70, 230, 18, mpHosting?COL_GOLD:(hostDisabled?(Color){80,80,80,255}:WHITE));
-
-    // join button
-    bool hj = !joinDisabled && CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-100, 280, 200, 40});
-    Color jc = mpShowIPInput ? Color{60,60,150,255} : joinDisabled ? Color{20,20,30,255} : hj ? Color{50,50,80,255} : Color{30,30,60,255};
-    DrawRectangle(SCREEN_W/2-100, 280, 200, 40, jc);
-    DrawRectangleLines(SCREEN_W/2-100, 280, 200, 40, joinDisabled?(Color){40,40,50,100}:(Color){100,100,200,150});
-    DrawText("Entrar em Sala", SCREEN_W/2-55, 290, 18, mpShowIPInput?COL_GOLD:(joinDisabled?(Color){80,80,80,255}:WHITE));
-
-    // IP / Port inputs
-    if (mpShowIPInput) {
-        DrawText("IP:", SCREEN_W/2-130, 342, 15, WHITE);
-        DrawRectangle(SCREEN_W/2-100, 336, 200, 28, {20,20,40,255});
-        DrawRectangleLines(SCREEN_W/2-100, 336, 200, 28, mpFocusPort?(Color){100,100,200,100}:(Color){200,200,100,200});
-        DrawText(mpIP[0]?mpIP:"...", SCREEN_W/2-92, 340, 15, mpIP[0]?WHITE:(Color){120,120,120,255});
-        if (!mpFocusPort) DrawText("_", SCREEN_W/2-92+MeasureText(mpIP,15), 340, 15, (Color){200,200,100,(unsigned char)(120+int(sinf(GetTime()*0.004f)*60))});
-
-        DrawText("Porta:", SCREEN_W/2-130, 384, 15, WHITE);
-        DrawRectangle(SCREEN_W/2-100, 378, 100, 28, {20,20,40,255});
-        DrawRectangleLines(SCREEN_W/2-100, 378, 100, 28, mpFocusPort?(Color){200,200,100,200}:(Color){100,100,200,100});
-        DrawText(mpPortStr[0]?mpPortStr:"...", SCREEN_W/2-92, 382, 15, WHITE);
-        if (mpFocusPort) DrawText("_", SCREEN_W/2-92+MeasureText(mpPortStr,15), 382, 15, (Color){200,200,100,(unsigned char)(120+int(sinf(GetTime()*0.004f)*60))});
-
-        DrawText("TAB para alternar, ENTER para conectar", SCREEN_W/2-MeasureText("TAB para alternar, ENTER para conectar", 13)/2, 412, 13, {180,180,200,150});
-
-        // connect button
-        bool hc = mpIP[0] && CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-50, 432, 100, 28});
-        Color cc2 = hc ? Color{50,80,50,255} : Color{30,50,30,255};
-        DrawRectangle(SCREEN_W/2-50, 432, 100, 28, cc2);
-        DrawRectangleLines(SCREEN_W/2-50, 432, 100, 28, mpIP[0]?(Color){100,200,100,150}:(Color){50,50,50,100});
-        DrawText("Conectar", SCREEN_W/2-28, 437, 14, mpIP[0]?WHITE:(Color){80,80,80,255});
-    }
-
-    // status info
-    if (mpConnected) {
-        DrawText(TextFormat("Conectado! Jogadores: %d", netGetClientCount()+1),
-                 SCREEN_W/2-MeasureText("X", 16)/2, 480, 16, COL_GOLD);
-    }
-    if (mpHosting) {
-        DrawText(TextFormat("IP: %s | Porta: %d | Jogadores: %d", netGetLocalIP(), mpPort, netGetClientCount()+1),
-                 SCREEN_W/2-MeasureText("X", 14)/2, 340, 14, COL_GOLD);
-    }
-
-    // back button
-    bool hb = CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-60, 520, 120, 30});
-    Color bc2 = hb ? Color{60,40,40,255} : Color{40,20,20,255};
-    DrawRectangle(SCREEN_W/2-60, 520, 120, 30, bc2);
-    DrawRectangleLines(SCREEN_W/2-60, 520, 120, 30, {150,80,80,150});
-    DrawText("Voltar", SCREEN_W/2-22, 526, 16, {200,150,150,255});
-
-    // debug overlay
-    Vector2 dbgMouse = GetMousePosition();
-    DrawText(TextFormat("Mouse: %.0f,%.0f", dbgMouse.x, dbgMouse.y), 10, 10, 12, (Color){200,200,200,100});
-    DrawText(TextFormat("mpShowIPInput=%d mpIPLen=%d mpFocusPort=%d mpJoining=%d mpConnected=%d mpConnectFailed=%d",
-             mpShowIPInput, mpIPLen, mpFocusPort, mpJoining, mpConnected, mpConnectFailed),
-             10, 24, 10, (Color){200,200,200,80});
-    if (mpConnectFailed) {
-        DrawText("FALHA AO CONECTAR: verifique o IP e se o servidor esta rodando",
-                 SCREEN_W/2-MeasureText("X", 14)/2, 485, 14, RED);
-    }
-}
 
 static void drawMenu() {
     ClearBackground({10,5,20,255});
@@ -1607,13 +1558,6 @@ static void drawMenu() {
     Color hintCol = {200,200,200,(unsigned char)(ba*255)};
     DrawText("Pressione ESPACO para continuar", SCREEN_W/2-MeasureText("Pressione ESPACO para continuar", 20)/2, 400, 20, hintCol);
 
-    // multiplayer button
-    bool hoverMp = CheckCollisionPointRec(GetMousePosition(), {SCREEN_W/2-70, 440, 140, 30});
-    Color mpCol = hoverMp ? Color{50,50,80,255} : Color{30,30,60,255};
-    DrawRectangle(SCREEN_W/2-70, 440, 140, 30, mpCol);
-    DrawRectangleLines(SCREEN_W/2-70, 440, 140, 30, {100,100,200,150});
-    DrawText("Multijogador", SCREEN_W/2-45, 446, 16, WHITE);
-    
     if (devModeUnlocked) {
         float ga = 0.8f + sinf(GetTime()*0.004f)*0.2f;
         Color dc = COL_GOLD; dc.a = (unsigned char)(255*ga);
@@ -1676,27 +1620,6 @@ static void drawLobby() {
         float ga = 0.8f + sinf(GetTime()*0.004f)*0.2f;
         Color dc = COL_GOLD; dc.a = (unsigned char)(255*ga);
         DrawText("[D] MODO DEV", SCREEN_W/2-MeasureText("[D] MODO DEV", 20)/2, 400, 20, dc);
-    }
-
-    // multiplayer room info
-    if (mpHosting) {
-        DrawText(TextFormat("SALA: %d jogador(es) conectado(s)", netGetClientCount()+1),
-                 SCREEN_W/2-MeasureText("X", 16)/2, 280, 16, COL_GOLD);
-        for (int i = 0; i < netGetClientCount(); i++) {
-            DrawText(TextFormat("Jogador %d", i+2), SCREEN_W/2-50, 300+i*20, 14, WHITE);
-        }
-    } else if (mpJoining && !mpConnected) {
-        DrawText("Conectando ao servidor...",
-                 SCREEN_W/2-MeasureText("Conectando ao servidor...", 14)/2, 280, 14, (Color){200,200,100,255});
-    } else if (mpConnected) {
-        DrawText("Conectado ao servidor! Escolha sua habilidade e pressione ESPACO",
-                 SCREEN_W/2-MeasureText("X", 14)/2, 280, 14, COL_GOLD);
-    }
-    if (mpHostReady) {
-        float pa = 0.5f + sinf(GetTime()*0.004f)*0.5f;
-        Color pc = COL_GOLD; pc.a = (unsigned char)(255*pa);
-        DrawText("Aguardando outro jogador ficar pronto...",
-                 SCREEN_W/2-MeasureText("Aguardando outro jogador ficar pronto...", 18)/2, 450, 18, pc);
     }
 
     // back button
@@ -1861,7 +1784,7 @@ static void resetGameState() {
     upgradePool = &upgrades;
 }
 
-static void initHostGame() {
+static void initGame() {
     resetGameState();
     startNextWave();
     if (devModeUnlocked && devWaveNumber > 1) {
@@ -1887,7 +1810,6 @@ static void initHostGame() {
         wave.enemiesToSpawn = 0;
         wave.waitingNextWave = false;
     }
-    mpSnapSeq = 2;
 }
 
 int main() {
@@ -1896,8 +1818,6 @@ int main() {
     InitWindow(SCREEN_W, SCREEN_H, "Edge Extrusion");
     InitAudioDevice();
     SetTargetFPS(60);
-    
-    mpNetInited = netInit();
     
     initSounds();
     initUpgrades();
@@ -1915,134 +1835,32 @@ int main() {
 
         if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
 
-        // network tick
-        if (mpNetInited) {
-            netTick();
-            if (mpJoining && netIsConnected() && !mpConnected) {
-                mpConnected = true;
-            }
-        }
-        
         if (gamePhase == PHASE_MENU) {
-            if (IsKeyPressed(KEY_SPACE) && !mpShowIPInput) {
+            if (IsKeyPressed(KEY_SPACE)) {
                 gamePhase = PHASE_LOBBY;
                 chosenAbility = ABILITY_BULLMASTER;
             }
             int c = GetCharPressed();
             while (c > 0) {
-                if (mpShowIPInput) {
-                    if (mpIPLen < 15 && ((c >= '0' && c <= '9') || c == '.' || c == ':')) {
-                        mpIP[mpIPLen++] = (char)c;
-                        mpIP[mpIPLen] = 0;
-                    }
-                } else {
-                    if (menuInputLen < 30 && c >= 32 && c <= 126) {
-                        menuInput[menuInputLen++] = (char)c;
-                        menuInput[menuInputLen] = 0;
-                    }
+                if (menuInputLen < 30 && c >= 32 && c <= 126) {
+                    menuInput[menuInputLen++] = (char)c;
+                    menuInput[menuInputLen] = 0;
                 }
                 c = GetCharPressed();
             }
             if (IsKeyPressed(KEY_BACKSPACE)) {
-                if (mpShowIPInput && mpIPLen > 0) mpIP[--mpIPLen] = 0;
-                else if (menuInputLen > 0) menuInput[--menuInputLen] = 0;
+                if (menuInputLen > 0) menuInput[--menuInputLen] = 0;
             }
             if (!devModeUnlocked && strcmp(menuInput, "J0gad0r1234dev") == 0) {
                 devModeUnlocked = true;
                 menuInputLen = 0;
                 menuInput[0] = 0;
             }
-
-            // go to multiplayer screen
-            Vector2 mpM = GetMousePosition();
-            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                if (CheckCollisionPointRec(mpM, {SCREEN_W/2-70, 440, 140, 30})) {
-                    gamePhase = PHASE_MPMENU;
-                    mpConnectFailed = false;
-                }
-            }
-        } else if (gamePhase == PHASE_MPMENU) {
-            Vector2 mpm = GetMousePosition();
-            bool hostDisabled = mpShowIPInput || mpConnected;
-            bool joinDisabled = mpHosting;
-            bool mpClick = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
-            bool wantConnect = false;
-            if (mpClick) {
-                if (!hostDisabled && CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 220, 200, 40})) {
-                    if (!mpHosting) {
-                        if (!mpNetInited) { mpNetInited = netInit(); }
-                        if (netHostStart(mpPort)) {
-                            mpHosting = true;
-                            mpJoining = mpShowIPInput = false;
-                            mpLocalPlayerId = 0;
-                        }
-                    } else {
-                        netCleanup();
-                        mpHosting = mpJoining = mpConnected = false;
-                        mpNetInited = false;
-                    }
-                }
-                if (!joinDisabled && CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 280, 200, 40})) {
-                    mpShowIPInput = !mpShowIPInput;
-                }
-                if (CheckCollisionPointRec(mpm, {SCREEN_W/2-60, 520, 120, 30})) {
-                    if (mpHosting || mpJoining) { netCleanup(); mpHosting = mpJoining = mpConnected = false; mpNetInited = false; }
-                    gamePhase = PHASE_MENU;
-                    mpShowIPInput = false;
-                    mpFocusPort = false;
-                }
-                if (mpShowIPInput) {
-                    if (CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 336, 200, 28})) mpFocusPort = false;
-                    if (CheckCollisionPointRec(mpm, {SCREEN_W/2-100, 378, 100, 28})) mpFocusPort = true;
-                    if (mpIP[0] && CheckCollisionPointRec(mpm, {SCREEN_W/2-50, 432, 100, 28})) wantConnect = true;
-                }
-            }
-            // input fields
-            if (mpShowIPInput) {
-                if (IsKeyPressed(KEY_TAB)) mpFocusPort = !mpFocusPort;
-
-                int cc2 = GetCharPressed();
-                while (cc2 > 0) {
-                    if (mpFocusPort) {
-                        if (mpPortLen < 5 && cc2 >= '0' && cc2 <= '9') {
-                            mpPortStr[mpPortLen++] = (char)cc2;
-                            mpPortStr[mpPortLen] = 0;
-                        }
-                    } else {
-                        if (mpIPLen < 15 && cc2 >= 32 && cc2 <= 126) {
-                            mpIP[mpIPLen++] = (char)cc2;
-                            mpIP[mpIPLen] = 0;
-                        }
-                    }
-                    cc2 = GetCharPressed();
-                }
-                if (IsKeyPressed(KEY_BACKSPACE)) {
-                    if (mpFocusPort && mpPortLen > 0) mpPortStr[--mpPortLen] = 0;
-                    else if (!mpFocusPort && mpIPLen > 0) mpIP[--mpIPLen] = 0;
-                }
-                if ((IsKeyPressed(KEY_ENTER) || wantConnect) && mpIP[0]) {
-                    mpPort = atoi(mpPortStr);
-                    if (mpPort <= 0) mpPort = 25565;
-                    if (!mpNetInited) { mpNetInited = netInit(); }
-                    if (netConnect(mpIP, mpPort)) {
-                        mpJoining = true;
-                        mpHosting = false;
-                        mpConnectFailed = false;
-                        gamePhase = PHASE_LOBBY;
-                        chosenAbility = ABILITY_BULLMASTER;
-                    } else {
-                        mpConnectFailed = true;
-                    }
-                }
-            }
-            if (IsKeyPressed(KEY_ESCAPE)) { if (mpHosting || mpJoining) { netCleanup(); mpHosting = mpJoining = mpConnected = false; mpNetInited = false; } gamePhase = PHASE_MENU; mpShowIPInput = false; mpFocusPort = false; }
         } else if (gamePhase == PHASE_LOBBY) {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 Vector2 mp = GetMousePosition();
                 if (CheckCollisionPointRec(mp, {SCREEN_W/2-60, 520, 120, 30})) {
-                    if (mpJoining || mpHosting) { netCleanup(); mpHosting = mpJoining = mpConnected = false; mpNetInited = false; }
-                    mpShowIPInput = false; mpFocusPort = false;
-                    gamePhase = PHASE_MPMENU;
+                    gamePhase = PHASE_MENU;
                 }
                 int abCount = 6;
                 int boxW = 165, boxH = 85, gap = 10;
@@ -2073,38 +1891,14 @@ int main() {
                 devPanelOpen = !devPanelOpen;
             }
             if (IsKeyPressed(KEY_ESCAPE)) {
-                if (mpJoining || mpHosting) {
-                    netCleanup();
-                    mpHosting = mpJoining = mpConnected = false;
-                    mpNetInited = false;
-                }
-                mpShowIPInput = false;
-                mpFocusPort = false;
-                gamePhase = PHASE_MPMENU;
+                gamePhase = PHASE_MENU;
             }
             if (IsKeyPressed(KEY_SPACE) && !devPanelOpen) {
                 paused = false;
                 settingsOpen = false;
-                if (mpConnected && !mpHosting) {
-                    // client: enter game world and wait for host snapshots
-                    gamePhase = PHASE_GAME;
-                    gameStarted = true;
-                } else if (!mpHosting) {
-                    // single player: start immediately
-                    gamePhase = PHASE_GAME;
-                    gameStarted = true;
-                    initHostGame();
-                } else if (netGetClientCount() > 0) {
-                    // host with clients: enter ready state
-                    mpHostReady = true;
-                }
-            }
-            // host: detect client ready
-            if (mpHostReady && netClientSentInput()) {
-                mpHostReady = false;
                 gamePhase = PHASE_GAME;
                 gameStarted = true;
-                initHostGame();
+                initGame();
             }
         } else if (gamePhase == PHASE_GAME || gamePhase == PHASE_UPGRADE) {
             if (IsKeyPressed(KEY_ENTER)) {
@@ -2263,6 +2057,8 @@ int main() {
                 
                 if (moveX!=0||moveY!=0) playerAngle = atan2f(moveY, moveX);
                 
+
+                
                 if (damageFlashTimer>0) damageFlashTimer--;
                 if (playerDashCooldown>0) playerDashCooldown -= dt;
                 if (playerStamina<playerMaxStamina) playerStamina = std::min(playerMaxStamina, playerStamina+playerStaminaRegen);
@@ -2273,59 +2069,58 @@ int main() {
                 
                 updateCamera();
                 tryFire(dt);
-
-                for (int i=bullets.size()-1; i>=0; i--) {
-                    auto& b = bullets[i];
-                    if (graphicsMode!=GRAPHICS_LOW && b.trailCount<6) {
-                        b.trail[b.trailCount++] = b.pos;
-                    }
-                    if (b.homing && chosenAbility==ABILITY_BULLMASTER) {
-                        Enemy* target = nullptr; float nd=1e9;
-                        for (auto& e : enemies) {
-                            float d = dist(b.pos, e->pos);
-                            if (d<nd) { nd=d; target=e; }
+                    for (int i=bullets.size()-1; i>=0; i--) {
+                        auto& b = bullets[i];
+                        if (graphicsMode!=GRAPHICS_LOW && b.trailCount<6) {
+                            b.trail[b.trailCount++] = b.pos;
                         }
-                        if (target) {
-                            Vec2 dir = (target->pos - b.pos).normalized();
-                            b.vel.x += (dir.x*b.speedMag - b.vel.x)*0.12f;
-                            b.vel.y += (dir.y*b.speedMag - b.vel.y)*0.12f;
-                        }
-                    }
-                    b.pos = b.pos + b.vel;
-                    
-                    bool hitWall = false;
-                    for (auto& o : obstacles) {
-                        if (circleRect(b.pos, b.r, o.x,o.y,o.w,o.h)) { hitWall=true; break; }
-                    }
-                    if (hitWall) { bullets.erase(bullets.begin()+i); continue; }
-                    
-                    bool bulletHit = false;
-                    for (int ei=enemies.size()-1; ei>=0; ei--) {
-                        auto& e = enemies[ei];
-                        if (dist(b.pos, e->pos) < b.r + e->r) {
-                            bulletHit = true;
-                            e->takeDamage(playerDamage);
-                            if (!b.piercing) { bullets.erase(bullets.begin()+i); }
-                            else { b.piercingHits++; if(b.piercingHits>=b.piercingMaxHits) bullets.erase(bullets.begin()+i); }
-                            
-                            spawnParticles(e->pos, ORANGE, 5);
-                            
-                            if (e->hp <= 0) {
-                                score += 1;
-                                playerXp += 8;
-                                spawnParticles(e->pos, YELLOW, 10);
-                                if (e == boss.obj) boss.obj = nullptr;
-                                delete e;
-                                enemies.erase(enemies.begin()+ei);
+                        if (b.homing && chosenAbility==ABILITY_BULLMASTER) {
+                            Enemy* target = nullptr; float nd=1e9;
+                            for (auto& e : enemies) {
+                                float d = dist(b.pos, e->pos);
+                                if (d<nd) { nd=d; target=e; }
                             }
-                            break;
+                            if (target) {
+                                Vec2 dir = (target->pos - b.pos).normalized();
+                                b.vel.x += (dir.x*b.speedMag - b.vel.x)*0.12f;
+                                b.vel.y += (dir.y*b.speedMag - b.vel.y)*0.12f;
+                            }
                         }
+                        b.pos = b.pos + b.vel;
+                        
+                        bool hitWall = false;
+                        for (auto& o : obstacles) {
+                            if (circleRect(b.pos, b.r, o.x,o.y,o.w,o.h)) { hitWall=true; break; }
+                        }
+                        if (hitWall) { bullets.erase(bullets.begin()+i); continue; }
+                        
+                        bool bulletHit = false;
+                        for (int ei=enemies.size()-1; ei>=0; ei--) {
+                            auto& e = enemies[ei];
+                            if (dist(b.pos, e->pos) < b.r + e->r) {
+                                bulletHit = true;
+                                e->takeDamage(playerDamage);
+                                if (!b.piercing) { bullets.erase(bullets.begin()+i); }
+                                else { b.piercingHits++; if(b.piercingHits>=b.piercingMaxHits) bullets.erase(bullets.begin()+i); }
+                                
+                                spawnParticles(e->pos, ORANGE, 5);
+                                
+                                if (e->hp <= 0) {
+                                    score += 1;
+                                    playerXp += 8;
+                                    spawnParticles(e->pos, YELLOW, 10);
+                                    if (e == boss.obj) boss.obj = nullptr;
+                                    delete e;
+                                    enemies.erase(enemies.begin()+ei);
+                                }
+                                break;
+                            }
+                        }
+                        if (bulletHit) continue;
+                        
+                        if (b.pos.x<-100||b.pos.x>WORLD_W+100||b.pos.y<-100||b.pos.y>WORLD_H+100)
+                            bullets.erase(bullets.begin()+i);
                     }
-                    if (bulletHit) continue;
-                    
-                    if (b.pos.x<-100||b.pos.x>WORLD_W+100||b.pos.y<-100||b.pos.y>WORLD_H+100)
-                        bullets.erase(bullets.begin()+i);
-                }
                 
                 for (int i=enemyBullets.size()-1; i>=0; i--) {
                     auto& b = enemyBullets[i];
@@ -2353,6 +2148,7 @@ int main() {
                 }
                 
                 if (playerContactCooldown > 0) playerContactCooldown -= dt;
+
                 for (auto& e : enemies) e->update(dt);
                 if (playerContactCooldown <= 0) {
                     for (auto& e : enemies) {
@@ -2396,7 +2192,8 @@ int main() {
                     paused = true;
                     gamePhase = PHASE_UPGRADE;
                     std::vector<Upgrade>& pool = (chosenAbility == ABILITY_LASER) ? laserUpgrades : upgrades;
-                    bool useRare = !rareUpgrades.empty() && randf()<0.20f && chosenAbility != ABILITY_LASER;
+                    bool useRare = !rareUpgrades.empty() && randf()<0.20f && chosenAbility != ABILITY_LASER
+                                   && (int)rareUpgrades.size() >= 3;
                     std::vector<Upgrade>& finalPool = useRare ? rareUpgrades : pool;
                     upgradePool = &finalPool;
                     int total = (int)finalPool.size();
@@ -2416,94 +2213,8 @@ int main() {
                     upgradeDisplay3 = lastUpgradeChoice3;
                 }
                 
-                if (!mpConnected || mpHosting) {
-                    updateWaveLogic(dt);
-                    updateMinions(dt);
-                }
-            }
-            
-            // always receive snapshots and send input
-            if (mpConnected && !mpHosting) {
-                Snapshot s;
-                if (netReceiveSnapshot(s)) mpSnap = s;
-                InputPacket inp;
-                inp.seq = mpInputSeq++;
-                inp.up = IsKeyDown(KEY_W);
-                inp.down = IsKeyDown(KEY_S);
-                inp.left = IsKeyDown(KEY_A);
-                inp.right = IsKeyDown(KEY_D);
-                Vector2 mpm = GetMousePosition();
-                float dx = mpm.x - SCREEN_W/2, dy = mpm.y - SCREEN_H/2;
-                float dl = sqrtf(dx*dx+dy*dy);
-                inp.aimX = dl>1?dx/dl:1; inp.aimY = dl>1?dy/dl:0;
-                inp.shoot = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-                netSendInput(inp);
-            }
-
-            // host: always broadcast snapshot
-            if (mpHosting) {
-                mpSnapSeq++;
-                if (mpSnapSeq % 3 == 0) {
-                    Snapshot snap;
-                    snap.seq = mpSnapSeq;
-                    snap.playerCount = 1 + netGetClientCount();
-                    snap.players[0].id = 0;
-                    snap.players[0].x = playerPos.x;
-                    snap.players[0].y = playerPos.y;
-                    snap.players[0].hp = playerHp;
-                    snap.players[0].maxHp = playerMaxHp;
-                    snap.players[0].shieldHp = playerShieldHp;
-                    snap.players[0].shieldMax = playerShieldMax;
-                    snap.players[0].level = playerLevel;
-                    for (int ci = 0; ci < netGetClientCount() && ci < 7; ci++) {
-                        auto& cp = snap.players[1+ci];
-                        cp.id = 1+ci;
-                        cp.x = playerPos.x + (ci+1)*60 * (ci%2?-1:1);
-                        cp.y = playerPos.y;
-                        cp.hp = playerHp; cp.maxHp = playerMaxHp;
-                        cp.shieldHp = 0; cp.shieldMax = 0;
-                        cp.level = playerLevel;
-                    }
-                    snap.enemyCount = 0;
-                    for (auto& e : enemies) {
-                        if (snap.enemyCount >= 256) break;
-                        auto& ne = snap.enemies[snap.enemyCount++];
-                        ne.id = 0; ne.type = (uint8_t)e->type;
-                        ne.x = e->pos.x; ne.y = e->pos.y;
-                        ne.hp = e->hp; ne.maxHp = e->maxHp;
-                        ne.shieldHp = e->shieldHp; ne.shieldMax = e->shieldHpMax;
-                        ne.r = e->r;
-                        switch (e->type) {
-                            case ENEMY_BALL: ne.r_=255;ne.g_=255;ne.b_=255; break;
-                            case ENEMY_TRIANGLE: ne.r_=100;ne.g_=200;ne.b_=255; break;
-                            case ENEMY_SQUARE: ne.r_=100;ne.g_=255;ne.b_=100; break;
-                            case ENEMY_SNIPER_COMMON: ne.r_=200;ne.g_=200;ne.b_=100; break;
-                            case ENEMY_RUNNER: ne.r_=255;ne.g_=100;ne.b_=100; break;
-                            case ENEMY_MINIBOSS_SNIPER: ne.r_=255;ne.g_=136;ne.b_=0; break;
-                            case ENEMY_MINIBOSS_BLINKER: ne.r_=200;ne.g_=80;ne.b_=255; break;
-                            case ENEMY_MINIBOSS_DASHER: ne.r_=255;ne.g_=68;ne.b_=0; break;
-                            case ENEMY_BOSS: ne.r_=122;ne.g_=0;ne.b_=48; break;
-                        }
-                    }
-                    snap.bulletCount = 0;
-                    for (auto& b : enemyBullets) {
-                        if (snap.bulletCount >= 512) break;
-                        auto& nb = snap.bullets[snap.bulletCount++];
-                        nb.x = b.pos.x; nb.y = b.pos.y; nb.r = b.r; nb.enemy = true;
-                    }
-                    snap.waveNumber = wave.number;
-                    snap.score = score;
-                    snap.gameOver = (gamePhase == PHASE_GAMEOVER);
-                    snap.bossHp = 0; snap.bossMaxHp = 0; snap.bossPhaseIndex = boss.bossPhaseIndex;
-                    for (auto& e : enemies) {
-                        if (e->isBoss()) {
-                            snap.bossHp = e->hp;
-                            snap.bossMaxHp = e->maxHp;
-                            break;
-                        }
-                    }
-                    netBroadcastSnapshot(snap);
-                }
+                updateWaveLogic(dt);
+                updateMinions(dt);
             }
             
             updateOverdrive(dt);
@@ -2574,8 +2285,6 @@ int main() {
         
         if (gamePhase == PHASE_MENU) {
             drawMenu();
-        } else if (gamePhase == PHASE_MPMENU) {
-            drawMpMenu();
         } else if (gamePhase == PHASE_LOBBY) {
             drawLobby();
             if (devPanelOpen) {
@@ -2665,63 +2374,6 @@ int main() {
                 DrawText("Pressione D para fechar", SCREEN_W/2-MeasureText("Pressione D para fechar", 16)/2, SCREEN_H-40, 16, {180,180,180,255});
             }
         } else if (gamePhase == PHASE_GAME || gamePhase == PHASE_UPGRADE) {
-            // client mode: render from snapshot
-            if (mpConnected && !mpHosting) {
-                drawWorld();
-                if (mpSnap.playerCount == 0) {
-                    float pulse = 0.7f + sinf(GetTime()*0.003f)*0.3f;
-                    Color waitCol = COL_GOLD;
-                    waitCol.a = (unsigned char)(255 * pulse);
-                    DrawText("Aguardando anfitriao iniciar a partida...",
-                             SCREEN_W/2 - MeasureText("Aguardando anfitriao iniciar a partida...", 20)/2,
-                             SCREEN_H/2 - 10, 20, waitCol);
-                    goto endDraw;
-                }
-                // draw players from snapshot
-                for (int pi = 0; pi < mpSnap.playerCount; pi++) {
-                    auto& sp = mpSnap.players[pi];
-                    float sx = toScreenX(sp.x), sy = toScreenY(sp.y);
-                    bool isMe = (pi == 0);
-                    Color pc = isMe ? GREEN : (Color){100,200,255,255};
-                    DrawCircleV({sx,sy}, 12, pc);
-                    DrawCircleV({sx,sy}, 8, {255,255,255,200});
-                    float bw2 = 30;
-                    DrawRectangle(sx-bw2/2, sy-24, bw2, 4, {20,20,20,255});
-                    DrawRectangle(sx-bw2/2, sy-24, bw2*(sp.hp/sp.maxHp), 4, GREEN);
-                }
-                // draw enemies from snapshot
-                for (int ei = 0; ei < mpSnap.enemyCount; ei++) {
-                    auto& se = mpSnap.enemies[ei];
-                    float sx = toScreenX(se.x), sy = toScreenY(se.y);
-                    Color ec = {se.r_, se.g_, se.b_, 255};
-                    DrawCircleV({sx,sy}, se.r, ec);
-                    if (se.hp < se.maxHp) {
-                        float bw2 = se.r*2;
-                        DrawRectangle(sx-bw2/2, sy-se.r-8, bw2, 4, {20,20,20,255});
-                        DrawRectangle(sx-bw2/2, sy-se.r-8, bw2*se.hp/se.maxHp, 4, RED);
-                    }
-                }
-                // draw bullets from snapshot
-                for (int bi = 0; bi < mpSnap.bulletCount; bi++) {
-                    auto& sb = mpSnap.bullets[bi];
-                    float sx = toScreenX(sb.x), sy = toScreenY(sb.y);
-                    Color bc = sb.enemy ? (Color){255,100,100,255} : (Color){80,200,255,255};
-                    DrawCircleV({sx,sy}, sb.r, bc);
-                }
-                // HUD from snapshot
-                if (mpSnap.playerCount > 0) {
-                    auto& sp = mpSnap.players[0];
-                    DrawText(TextFormat("HP: %.0f/%.0f  LVL %d  Onda %d/%d", sp.hp, sp.maxHp, sp.level, mpSnap.waveNumber, 15), 10, 10, 16, WHITE);
-                    DrawText(TextFormat("Score: %d", mpSnap.score), 10, 30, 16, WHITE);
-                }
-                if (mpSnap.gameOver) {
-                    const char* gtxt = "GAME OVER";
-                    DrawText(gtxt, SCREEN_W/2-MeasureText(gtxt,48)/2, SCREEN_H/2-24, 48, RED);
-                }
-                // skip normal drawing
-                goto endDraw;
-            }
-
             drawWorld();
             
             for (auto& b : bullets) {
@@ -2742,7 +2394,12 @@ int main() {
                     float psx = toScreenX(playerPos.x), psy = toScreenY(playerPos.y);
                     DrawLineEx({sx,sy}, {psx,psy}, 1.5f, {100,255,200,40});
                 }
-                DrawCircle(sx, sy, b.r, bc);
+                if (b.piercing) {
+                    float angle = atan2f(b.vel.y, b.vel.x) * (180.0f / M_PI);
+                    DrawPoly({sx, sy}, 3, b.r * 1.5f, angle, bc);
+                } else {
+                    DrawCircle(sx, sy, b.r, bc);
+                }
             }
             for (auto& b : enemyBullets) {
                 float sx=toScreenX(b.pos.x), sy=toScreenY(b.pos.y);
@@ -2796,6 +2453,7 @@ int main() {
                 DrawLineEx({psx, psy}, {ex, ey}, laserWidth*3, glow);
                 DrawLineEx({psx, psy}, {ex, ey}, laserWidth, core);
             }
+
             Color playerCol = damageFlashTimer>0 ? WHITE : Color{42,157,244,255};
             Color innerCol = damageFlashTimer>0 ? Color{255,200,200,255} : Color{155,232,255,255};
             if (graphicsMode!=GRAPHICS_LOW) {
@@ -2859,7 +2517,6 @@ int main() {
             DrawText("ESPACO para voltar ao menu", SCREEN_W/2-MeasureText("ESPACO para voltar ao menu", 18)/2, 380, 18, hintC);
         }
         
-        endDraw:
         if (damageFlashTimer > 0 && (gamePhase == PHASE_GAME || gamePhase == PHASE_UPGRADE)) {
             float alpha = (damageFlashTimer / 12.0f) * 50;
             DrawRectangle(0, 0, SCREEN_W, SCREEN_H, {255, 0, 0, (unsigned char)alpha});
@@ -2870,7 +2527,6 @@ int main() {
     
     for (auto& e : enemies) delete e;
     for (auto& s : sounds) UnloadSound(s.second);
-    if (mpNetInited) netCleanup();
     CloseAudioDevice();
     CloseWindow();
     return 0;

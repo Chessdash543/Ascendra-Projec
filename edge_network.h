@@ -4,13 +4,16 @@
 #include <cstring>
 
 // ---- protocol ----
-enum PacketType : uint8_t { PKT_INPUT, PKT_SNAPSHOT };
+enum PacketType : uint8_t { PKT_INPUT, PKT_SNAPSHOT, PKT_GAMESTART, PKT_ASSIGN_ID };
 
 struct InputPacket {
     uint16_t seq;
     bool up, down, left, right;
     float aimX, aimY;
     bool shoot;
+    float hp, maxHp;
+    float shieldHp, shieldMax;
+    int level;
 };
 
 struct NetPlayer {
@@ -35,6 +38,7 @@ struct NetBullet {
     float x, y;
     float r;
     bool enemy;
+    float damage;
 };
 
 struct Snapshot {
@@ -70,3 +74,16 @@ void netSetLocalPlayerId(uint8_t id);
 uint8_t netGetLocalPlayerId();
 bool netClientSentInput();
 const char* netGetLocalIP();
+
+struct ClientInput {
+    uint16_t seq;
+    bool up, down, left, right, shoot;
+    float aimX, aimY;
+    float hp, maxHp;
+    float shieldHp, shieldMax;
+    int level;
+};
+ClientInput netGetClientInput(int clientIndex);
+void netSetClientCount(int n);
+void netBroadcastGameStart();
+bool netReceiveGameStart();
