@@ -178,7 +178,6 @@ static int shotCount=0, bhTimer=0, fireTimer=0;
 static bool laserActive=false;
 static int laserTimer=0, laserDuration=3000, laserCooldown=5000, laserCooldownTimer=0;
 static float laserDamage=100, laserWidth=4;
-static bool atropelamento=false;
 static Vec2 playerPos(WORLD_W/2, WORLD_H/2);
 static float playerAngle=0;
 static int playerR=20;
@@ -1264,7 +1263,7 @@ static void tryFire(int dt) {
     for (int i=0; i<playerBullets; i++) {
         float spread = (i - (playerBullets-1)/2.0f) * 0.12f;
         float a = baseAngle + spread;
-        bool isHoming = (chosenAbility==ABILITY_BULLMASTER && randf()<0.22f);
+        bool isHoming = (chosenAbility == ABILITY_PIERCING) ? isPiercing : (chosenAbility==ABILITY_BULLMASTER && randf()<0.22f);
         float bSpeed = playerBulletSpeed;
         if (chosenAbility==ABILITY_OVERDRIVE && overdriveActive) bSpeed = playerBulletSpeed*3;
         
@@ -2074,7 +2073,7 @@ int main() {
                         if (graphicsMode!=GRAPHICS_LOW && b.trailCount<6) {
                             b.trail[b.trailCount++] = b.pos;
                         }
-                        if (b.homing && chosenAbility==ABILITY_BULLMASTER) {
+                        if (b.homing && (chosenAbility==ABILITY_BULLMASTER || chosenAbility==ABILITY_PIERCING)) {
                             Enemy* target = nullptr; float nd=1e9;
                             for (auto& e : enemies) {
                                 float d = dist(b.pos, e->pos);
@@ -2380,7 +2379,7 @@ int main() {
                 float sx=toScreenX(b.pos.x), sy=toScreenY(b.pos.y);
                 if (graphicsMode!=GRAPHICS_LOW && b.trailCount>0) {
                     for (int t=0; t<b.trailCount; t++) {
-                        float alpha = (t+1.0f)/b.trailCount*0.3f;
+                        float alpha = (t+1.0f)/b.trailCount*(b.piercing?0.6f:0.3f);
                         float rad = b.r*(t+1.0f)/b.trailCount*0.6f;
                         Color tc = b.tethered?Color{100,255,200,255}:(b.piercing?RED:(b.homing?COL_HOMING:COL_BULLET));
                         tc.a = (unsigned char)(alpha*255);
@@ -2395,8 +2394,10 @@ int main() {
                     DrawLineEx({sx,sy}, {psx,psy}, 1.5f, {100,255,200,40});
                 }
                 if (b.piercing) {
+                    DrawCircle(sx, sy, b.r+4, Color{255,50,50,60});
                     float angle = atan2f(b.vel.y, b.vel.x) * (180.0f / M_PI);
                     DrawPoly({sx, sy}, 3, b.r * 1.5f, angle, bc);
+                    DrawPoly({sx, sy}, 3, (b.r * 1.5f)+4, angle, Color{255,0,0,40});
                 } else {
                     DrawCircle(sx, sy, b.r, bc);
                 }
